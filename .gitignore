@@ -1,0 +1,45 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Builds and generated output
+dist/
+frontend/dist/
+build/
+coverage/
+.nyc_output/
+
+# Logs and temporary files
+logs/
+*.log
+tmp-*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local databases and test storage
+*.sqlite
+*.sqlite3
+*.db
+dev.sqlite
+test.sqlite
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Runtime/process files
+*.pid
+*.seed
+*.pid.lock

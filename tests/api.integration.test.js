@@ -1,0 +1,409 @@
+const request = require("supertest");
+const bcrypt = require("bcryptjs");
+
+process.env.API_RATE_LIMIT_MAX = "100000";
+process.env.LOGIN_RATE_LIMIT_MAX = "100000";
+process.env.JWT_SECRET = process.env.JWT_SECRET || "test_secret";
+
+const app = require("../app");
+const {
+  sequelize,
+  User,
+  Lead,
+  Message,
+  FollowUp,
+  Student,
+  StudentAction,
+  TrackingEvent,
+  Task
+} = require("../models");
+const trackingService = require("../services/activation/trackingService");
+
+describe("Root CRM backend integration", () => {
+  const expectJson = (response) => {
+    expect(response.headers["content-type"]).toMatch(/application\/json/);
+  };
+
+  const createAdmin = async () => {
+    return User.create({
+      name: "Admin User",
+      email: "admin@crm.local",
+      password_hash: await bcrypt.hash("StrongPass123", 10),
+      role: "admin"
+    });
+  };
+
+  const loginAsAdmin = async () => {
+    await createAdmin();
+    const response = await request(app).post("/api/auth/login").send({
+      email: "admin@crm.local",
+      password: "StrongPass123"
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.token).toBeDefined();
+    return response.body.token;
+  };
+
+  const auth = (token) => ({ Authorization: `Bearer ${token}` });
+
+  beforeAll(async () => {
+    await sequelize.authenticate();
+    await sequelize.sync({ force: true });
+  });
+
+  beforeEach(async () => {
+    await sequelize.sync({ force: true });
+  });
+
+  afterAll(async () => {
+    await sequelize.close();
+  });
+
+  describe("AUTH", () => {
+    test("POST /api/auth/register creates the first admin and returns a JWT", async () => {
+      const response = await request(app).post("/api/auth/register").send({
+        name: "Admin CRM",
+        email: "admin@crm.local",
+        password: "StrongPass123",
+        role: "admin"
+      });
+
+      expect(response.status).toBe(201);
+      expectJson(response);
+      expect(response.body.token).toBeDefined();
+      expect(response.body.user.email).toBe("admin@crm.local");
+      expect(response.body.user.role).toBe("admin");
+    });
+
+    test("POST /api/auth/login accepts email/password and returns a JWT", async () => {
+      await createAdmin();
+
+      const response = await request(app).post("/api/auth/login").send({
+        email: "admin@crm.local",
+        password: "StrongPass123"
+      });
+
+      expect(response.status).toBe(200);
+      expectJson(response);
+      expect(response.body.token).toBeDefined();
+      expect(response.body.user.email).toBe("admin@crm.local");
+    });
+
+    test("GET /api/auth/me returns the authenticated user", async () => {
+      const token = await loginAsAdmin();
+
+      const response = await request(app).get("/api/auth/me").set(auth(token));
+
+      expect(response.status).toBe(200);
+      expectJson(response);
+      expect(response.body.email).toBe("admin@crm.local");
+      expect(response.body.role).toBe("admin");
+    });
+
+    test("GET /api/auth/users returns users for admin", async () => {
+      const token = await loginAsAdmin();
+
+      const response = await request(app).get("/api/auth/users").set(auth(token));
+
+      expect(response.status).toBe(200);
+      expectJson(response);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].email).toBe("admin@crm.local");
+    });
+  });
+
+  describe("CRM DASHBOARD", () => {
+    test("GET /api/dashboard/stats returns CRM stats", async () => {
+      const token = await loginAsAdmin();
+      const lead = await Lead.create({
+        name: "Client Lead",
+        phone: "+50934111111",
+        status: "client",
+        score: 80
+      });
+      await Message.create({
+        lead_id: lead.id,
+        message: "hello",
+        type: "initial",
+        status: "sent"
+      });
+      await FollowUp.create({
+        lead_id: lead.id,
+        scheduled_date: new Date(),
+        message: "follow up",
+        status: "pending"
+      });
+
+      const response = await request(app).get("/api/dashboard/stats").set(auth(token));
+
+      expect(response.status).toBe(200);
+      expectJson(response);
+      expect(response.body.total_leads).toBe(1);
+      expect(response.body.total_clients).toBe(1);
+      expect(response.body.hot_leads).toBe(1);
+      expect(response.body.messages_sent).toBe(1);
+      expect(response.body.followups_pending).toBe(1);
+      expect(Array.isArray(response.body.leads_by_tag)).toBe(true);
+    });
+  });
+
+  describe("ACTIVATION STUDENTS", () => {
+    test("POST /api/activation/students creates a student", async () => {
+      const token = await loginAsAdmin();
+
+      const response = await request(app)
+        .post("/api/activation/students")
+        .set(auth(token))
+        .send({
+          name: "Jean Pierre",
+          phone: "+50934123456",
+          status: "paid_training"
+        });
+
+      expect(response.status).toBe(201);
+      expectJson(response);
+      expect(response.body.id).toBeDefined();
+      expect(response.body.name).toBe("Jean Pierre");
+      expect(response.body.status).toBe("paid_training");
+    });
+
+    test("GET /api/activation/students returns students and supports status filter", async () => {
+      const token = await loginAsAdmin();
+      await Student.bulkCreate([
+        { name: "S1", phone: "+50934000111", status: "onboarding", created_at: new Date() },
+        { name: "S2", phone: "+50934000112", status: "active", created_at: new Date() }
+      ]);
+
+      const response = await request(app)
+        .get("/api/activation/students")
+        .query({ status: "onboarding" })
+        .set(auth(token));
+
+      expect(response.status).toBe(200);
+      expectJson(response);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].status).toBe("onboarding");
+    });
+
+    test("GET /api/activation/dashboard/summary returns activation summary", async () => {
+      const token = await loginAsAdmin();
+      const oldDate = new Date(Date.now() - 26 * 60 * 60 * 1000);
+      await Student.bulkCreate([
+        {
+          name: "Paid",
+          phone: "+50934000611",
+          status: "paid_training",
+          created_at: new Date(),
+          last_action_at: new Date()
+        },
+        {
+          name: "Blocked",
+          phone: "+50934000616",
+          status: "blocked",
+          created_at: new Date(),
+          last_action_at: new Date()
+        },
+        {
+          name: "At Risk Candidate",
+          phone: "+50934000617",
+          status: "onboarding",
+          created_at: oldDate,
+          last_action_at: oldDate
+        }
+      ]);
+
+      const response = await request(app).get("/api/activation/dashboard/summary").set(auth(token));
+
+      expect(response.status).toBe(200);
+      expectJson(response);
+      expect(response.body.paid_training).toBe(1);
+      expect(response.body.blocked).toBe(1);
+      expect(Array.isArray(response.body.at_risk_students)).toBe(true);
+      expect(response.body.at_risk_students.some((student) => student.name === "At Risk Candidate")).toBe(true);
+    });
+  });
+
+  describe("SUPPORT TASKS", () => {
+    test("POST /api/activation/tasks creates one unresolved task per type per student", async () => {
+      const token = await loginAsAdmin();
+      const student = await Student.create({
+        name: "Support Student",
+        phone: "+50934001001",
+        status: "onboarding"
+      });
+
+      const payload = {
+        student_id: student.id,
+        type: "onboarding_issue",
+        priority: "urgent",
+        notes: "Needs onboarding support"
+      };
+
+      const first = await request(app).post("/api/activation/tasks").set(auth(token)).send(payload);
+      const duplicate = await request(app).post("/api/activation/tasks").set(auth(token)).send(payload);
+
+      expect(first.status).toBe(201);
+      expectJson(first);
+      expect(first.body.id).toBeDefined();
+      expect(first.body.type).toBe("onboarding_issue");
+      expect(first.body.status).toBe("pending");
+
+      expect(duplicate.status).toBe(200);
+      expect(duplicate.body.id).toBe(first.body.id);
+      expect(await Task.count()).toBe(1);
+    });
+
+    test("GET /api/activation/tasks returns open tasks", async () => {
+      const token = await loginAsAdmin();
+      const student = await Student.create({
+        name: "Open Task Student",
+        phone: "+50934001002",
+        status: "at_risk"
+      });
+      await Task.create({
+        student_id: student.id,
+        type: "motivation_issue",
+        status: "pending",
+        priority: "urgent"
+      });
+      await Task.create({
+        student_id: student.id,
+        type: "technical_issue",
+        status: "resolved",
+        priority: "normal",
+        resolved_at: new Date()
+      });
+
+      const response = await request(app).get("/api/activation/tasks").set(auth(token));
+
+      expect(response.status).toBe(200);
+      expectJson(response);
+      expect(Array.isArray(response.body)).toBe(true);
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].type).toBe("motivation_issue");
+    });
+
+    test("PATCH task assign and resolve update task, log StudentAction, and touch student", async () => {
+      const token = await loginAsAdmin();
+      const admin = await User.findOne({ where: { email: "admin@crm.local" } });
+      const student = await Student.create({
+        name: "Resolve Task Student",
+        phone: "+50934001003",
+        status: "blocked",
+        last_action_at: null
+      });
+      const task = await Task.create({
+        student_id: student.id,
+        type: "technical_issue",
+        status: "pending",
+        priority: "urgent"
+      });
+
+      const assigned = await request(app)
+        .patch(`/api/activation/tasks/${task.id}/assign`)
+        .set(auth(token))
+        .send({ assigned_to: admin.id, notes: "Taking ownership" });
+
+      expect(assigned.status).toBe(200);
+      expectJson(assigned);
+      expect(assigned.body.assigned_to).toBe(admin.id);
+      expect(assigned.body.status).toBe("in_progress");
+
+      const resolved = await request(app)
+        .patch(`/api/activation/tasks/${task.id}/resolve`)
+        .set(auth(token))
+        .send({ notes: "Resolved by support" });
+
+      expect(resolved.status).toBe(200);
+      expectJson(resolved);
+      expect(resolved.body.status).toBe("resolved");
+      expect(resolved.body.resolved_at).toBeDefined();
+
+      const actionCount = await StudentAction.count({ where: { student_id: student.id, type: "support" } });
+      expect(actionCount).toBe(2);
+
+      await student.reload();
+      expect(student.last_action_at).toBeTruthy();
+    });
+
+    test("activation automation creates support tasks for abandonment risks", async () => {
+      const token = await loginAsAdmin();
+      const oldDate = new Date(Date.now() - 50 * 60 * 60 * 1000);
+      const atRisk = await Student.create({
+        name: "At Risk",
+        phone: "+50934001004",
+        status: "at_risk",
+        created_at: oldDate,
+        last_action_at: oldDate
+      });
+      const blocked = await Student.create({
+        name: "Blocked",
+        phone: "+50934001005",
+        status: "blocked",
+        created_at: oldDate,
+        last_action_at: oldDate
+      });
+      const staleOnboarding = await Student.create({
+        name: "Stale Onboarding",
+        phone: "+50934001006",
+        status: "onboarding",
+        created_at: oldDate,
+        last_action_at: oldDate
+      });
+
+      const recovery = await request(app)
+        .post(`/api/activation/students/${atRisk.id}/recovery`)
+        .set(auth(token))
+        .send();
+      expect(recovery.status).toBe(200);
+
+      const check = await request(app).post("/api/activation/at-risk/check").set(auth(token)).send();
+      expect(check.status).toBe(200);
+
+      const taskRows = await Task.findAll({ order: [["student_id", "ASC"], ["type", "ASC"]], raw: true });
+      const byStudent = taskRows.reduce((acc, row) => {
+        acc[row.student_id] = acc[row.student_id] || [];
+        acc[row.student_id].push(row.type);
+        return acc;
+      }, {});
+
+      expect(byStudent[atRisk.id]).toContain("motivation_issue");
+      expect(byStudent[blocked.id]).toContain("technical_issue");
+      expect(byStudent[staleOnboarding.id]).toContain("onboarding_issue");
+      expect(byStudent[staleOnboarding.id]).toContain("technical_issue");
+    });
+  });
+
+  describe("TRACKING", () => {
+    test("GET /t/:token logs a tracking event and redirects", async () => {
+      const student = await Student.create({
+        name: "Tracked Student",
+        phone: "+50934000999",
+        status: "onboarding"
+      });
+      const token = trackingService.generateTrackingLink(student.id, "activation").split("/t/")[1];
+
+      const response = await request(app).get(`/t/${token}`);
+
+      expect(response.status).toBe(302);
+      expect(response.headers.location).toBeDefined();
+      const eventCount = await TrackingEvent.count({
+        where: { student_id: student.id, event_type: "click" }
+      });
+      expect(eventCount).toBe(1);
+    });
+  });
+
+  describe("REMOVED ROUTE MISMATCHES", () => {
+    test("GET /api/students is not exposed by the root backend", async () => {
+      const token = await loginAsAdmin();
+
+      const response = await request(app).get("/api/students").set(auth(token));
+
+      expect(response.status).toBe(404);
+    });
+  });
+});

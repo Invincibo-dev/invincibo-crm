@@ -1,0 +1,266 @@
+{
+  "info": {
+    "_postman_id": "a6cf3c48-95de-4d5c-b55c-1ba5049f4d14",
+    "name": "CRM Auth + Protected API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Collection complete pour tester auth JWT + routes protegees du CRM."
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "token", "value": "" },
+    { "key": "leadId", "value": "" },
+    { "key": "tagId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+      }
+    },
+    {
+      "name": "Auth - Register First Admin",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 201) {",
+              "  const json = pm.response.json();",
+              "  if (json.token) pm.collectionVariables.set('token', json.token);",
+              "}",
+              "pm.test('Register returns 201 or 409', function () {",
+              "  pm.expect([201, 409]).to.include(pm.response.code);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Admin CRM\",\n  \"email\": \"admin@crm.local\",\n  \"password\": \"StrongPass123\",\n  \"role\": \"admin\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "auth", "register"] }
+      }
+    },
+    {
+      "name": "Auth - Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Login status 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const json = pm.response.json();",
+              "if (json.token) pm.collectionVariables.set('token', json.token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"admin@crm.local\",\n  \"password\": \"StrongPass123\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+      }
+    },
+    {
+      "name": "Auth - Me",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] }
+      }
+    },
+    {
+      "name": "Leads - Create",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Lead created', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "const json = pm.response.json();",
+              "if (json.id) pm.collectionVariables.set('leadId', json.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"first_name\": \"Jean\",\n  \"last_name\": \"Pierre\",\n  \"gender\": \"male\",\n  \"phone\": \"+50934{{$randomInt}}{{$randomInt}}\",\n  \"email\": \"jean.pierre@example.com\",\n  \"source\": \"facebook\",\n  \"status\": \"new\"\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/leads", "host": ["{{baseUrl}}"], "path": ["api", "leads"] }
+      }
+    },
+    {
+      "name": "Leads - List",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/leads", "host": ["{{baseUrl}}"], "path": ["api", "leads"] }
+      }
+    },
+    {
+      "name": "Leads - Get By ID",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/leads/{{leadId}}", "host": ["{{baseUrl}}"], "path": ["api", "leads", "{{leadId}}"] }
+      }
+    },
+    {
+      "name": "Leads - Update Status",
+      "request": {
+        "method": "PUT",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"status\": \"contacted\"\n}" },
+        "url": { "raw": "{{baseUrl}}/api/leads/{{leadId}}/status", "host": ["{{baseUrl}}"], "path": ["api", "leads", "{{leadId}}", "status"] }
+      }
+    },
+    {
+      "name": "Tags - Create",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Tag created', function () {",
+              "  pm.expect([201, 409]).to.include(pm.response.code);",
+              "});",
+              "if (pm.response.code === 201) {",
+              "  const json = pm.response.json();",
+              "  if (json.id) pm.collectionVariables.set('tagId', json.id);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"formation-gsm\"\n}" },
+        "url": { "raw": "{{baseUrl}}/api/tags", "host": ["{{baseUrl}}"], "path": ["api", "tags"] }
+      }
+    },
+    {
+      "name": "Tags - List",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/tags", "host": ["{{baseUrl}}"], "path": ["api", "tags"] }
+      }
+    },
+    {
+      "name": "Leads - Add Tag",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": { "mode": "raw", "raw": "{\n  \"tag_id\": {{tagId}}\n}" },
+        "url": { "raw": "{{baseUrl}}/api/leads/{{leadId}}/tags", "host": ["{{baseUrl}}"], "path": ["api", "leads", "{{leadId}}", "tags"] }
+      }
+    },
+    {
+      "name": "Leads - List Tags",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/leads/{{leadId}}/tags", "host": ["{{baseUrl}}"], "path": ["api", "leads", "{{leadId}}", "tags"] }
+      }
+    },
+    {
+      "name": "Followups - Create Manual",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"lead_id\": {{leadId}},\n  \"scheduled_date\": \"2026-02-23 10:00:00\",\n  \"message\": \"Relance manuelle de test\",\n  \"sequence_step\": 0\n}"
+        },
+        "url": { "raw": "{{baseUrl}}/api/followups", "host": ["{{baseUrl}}"], "path": ["api", "followups"] }
+      }
+    },
+    {
+      "name": "Followups - Pending",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/followups/pending", "host": ["{{baseUrl}}"], "path": ["api", "followups", "pending"] }
+      }
+    },
+    {
+      "name": "Followups - Process (Admin)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/followups/process", "host": ["{{baseUrl}}"], "path": ["api", "followups", "process"] }
+      }
+    },
+    {
+      "name": "Dashboard - Stats",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/dashboard/stats", "host": ["{{baseUrl}}"], "path": ["api", "dashboard", "stats"] }
+      }
+    },
+    {
+      "name": "Leads - Cancel Sequence",
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/leads/{{leadId}}/cancel-sequence", "host": ["{{baseUrl}}"], "path": ["api", "leads", "{{leadId}}", "cancel-sequence"] }
+      }
+    },
+    {
+      "name": "Leads - Remove Tag",
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/leads/{{leadId}}/tags/{{tagId}}", "host": ["{{baseUrl}}"], "path": ["api", "leads", "{{leadId}}", "tags", "{{tagId}}"] }
+      }
+    },
+    {
+      "name": "Leads - Delete (Admin)",
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+        "url": { "raw": "{{baseUrl}}/api/leads/{{leadId}}", "host": ["{{baseUrl}}"], "path": ["api", "leads", "{{leadId}}"] }
+      }
+    }
+  ]
+}

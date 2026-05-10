@@ -1,0 +1,241 @@
+{
+  "info": {
+    "_postman_id": "d4d81f84-9c1f-4ec4-9f2b-5e24e4f5a3cb",
+    "name": "CRM Phase 4",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Collection Postman pour tester le CRM WhatsApp Phase 4."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000"
+    },
+    {
+      "key": "leadId",
+      "value": "1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health - GET /health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Create Lead - POST /api/leads",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 201', function () {",
+              "  pm.response.to.have.status(201);",
+              "});",
+              "var jsonData = pm.response.json();",
+              "if (jsonData && jsonData.id) {",
+              "  pm.collectionVariables.set('leadId', jsonData.id);",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Jean Pierre\",\n  \"phone\": \"+50934{{$randomInt}}{{$randomInt}}\",\n  \"email\": \"jean.test@example.com\",\n  \"source\": \"facebook\",\n  \"status\": \"new\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/leads",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "leads"
+          ]
+        }
+      }
+    },
+    {
+      "name": "List Leads - GET /api/leads",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/leads",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "leads"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Lead By ID - GET /api/leads/:id",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/leads/{{leadId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "leads",
+            "{{leadId}}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Update Lead Status - PUT /api/leads/:id/status",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"status\": \"contacted\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/leads/{{leadId}}/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "leads",
+            "{{leadId}}",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Cancel Sequence - PUT /api/leads/:id/cancel-sequence",
+      "request": {
+        "method": "PUT",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/leads/{{leadId}}/cancel-sequence",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "leads",
+            "{{leadId}}",
+            "cancel-sequence"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Create Followup - POST /api/followups",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"lead_id\": {{leadId}},\n  \"scheduled_date\": \"2026-02-23 10:00:00\",\n  \"message\": \"Bonjour, je reviens vers vous pour le suivi.\",\n  \"sequence_step\": 0\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/followups",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "followups"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Pending Followups - GET /api/followups/pending",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/followups/pending",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "followups",
+            "pending"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Process Followups - POST /api/followups/process",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/followups/process",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "followups",
+            "process"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Delete Lead - DELETE /api/leads/:id",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/leads/{{leadId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "leads",
+            "{{leadId}}"
+          ]
+        }
+      }
+    }
+  ]
+}
