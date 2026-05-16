@@ -103,10 +103,14 @@ const sendMessage = async (to, message) => {
       };
     }
 
-    console.error("[Activation WhatsApp] API error", {
-      statusCode: response.statusCode,
-      data: response.data
-    });
+    if (process.env.NODE_ENV === "production") {
+      console.error("[Activation WhatsApp] API error", response.statusCode);
+    } else {
+      console.error("[Activation WhatsApp] API error", {
+        statusCode: response.statusCode,
+        data: response.data
+      });
+    }
 
     return {
       success: false,

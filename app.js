@@ -14,7 +14,8 @@ const errorHandler = require("./middleware/errorHandler");
 const app = express();
 app.set("trust proxy", 1);
 
-const allowedOrigins = (process.env.CORS_ORIGIN || "")
+const defaultCorsOrigin = process.env.NODE_ENV === "production" ? "https://cv-pam.com" : "http://localhost:5173";
+const allowedOrigins = (process.env.CORS_ORIGIN || defaultCorsOrigin)
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
@@ -26,7 +27,7 @@ app.use(
       if (!origin) {
         return callback(null, true);
       }
-      if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
       return callback(new Error("CORS blocked for this origin"));
@@ -48,6 +49,10 @@ app.use("/api/followups", authenticateToken, followupRoutes);
 app.use("/api/tags", authenticateToken, tagRoutes);
 app.use("/api/dashboard", authenticateToken, dashboardRoutes);
 app.use("/api/activation", authenticateToken, activationRoutes);
+
+app.use("/api", (_req, res) => {
+  res.status(404).json({ message: "API route not found" });
+});
 
 app.use(errorHandler);
 
