@@ -15,7 +15,8 @@ const {
   Student,
   StudentAction,
   TrackingEvent,
-  Task
+  Task,
+  ContactGroupMember
 } = require("../models");
 const trackingService = require("../services/activation/trackingService");
 
@@ -394,6 +395,179 @@ describe("Root CRM backend integration", () => {
         where: { student_id: student.id, event_type: "click" }
       });
       expect(eventCount).toBe(1);
+    });
+  });
+
+  describe("CONTACT GROUPS", () => {
+    test("POST /api/groups creates a group", async () => {
+      const token = await loginAsAdmin();
+
+      const response = await request(app)
+        .post("/api/groups")
+        .set(auth(token))
+        .send({ name: "Clients formation", description: "Contacts formation", category: "formation" });
+
+      expect(response.status).toBe(201);
+      expectJson(response);
+      expect(response.body.name).toBe("Clients formation");
+      expect(response.body.description).toBe("Contacts formation");
+      expect(response.body.category).toBe("formation");
+      expect(response.body.is_active).toBe(true);
+    });
+
+    test("POST /api/groups/:id/members adds a member and prevents duplicates", async () => {
+      const token = await loginAsAdmin();
+      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Prospects interesses" });
+      const lead = await Lead.create({
+        name: "Group Lead",
+        phone: "+50955000001",
+        status: "new"
+      });
+
+      const first = await request(app)
+        .post(`/api/groups/${group.body.id}/members`)
+        .set(auth(token))
+        .send({ contact_type: "lead", contact_id: lead.id, problem_reason: "interested", notes: "manual add" });
+      const duplicate = await request(app)
+        .post(`/api/groups/${group.body.id}/members`)
+        .set(auth(token))
+        .send({ contact_type: "lead", contact_id: lead.id });
+
+      expect(first.status).toBe(201);
+      expect(first.body.problem_reason).toBe("interested");
+      expect(first.body.notes).toBe("manual add");
+      expect(duplicate.status).toBe(200);
+      const count = await ContactGroupMember.count({
+        where: { group_id: group.body.id, contact_type: "lead", contact_id: lead.id }
+      });
+      expect(count).toBe(1);
+    });
+
+    test("POST /api/groups/:id/import-csv creates and reuses leads while adding valid contacts to group", async () => {
+      const token = await loginAsAdmin();
+      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Import CSV" });
+      await Lead.create({ name: "Existing CSV", phone: "+50955000009", email: "old@example.com", status: "new" });
+
+      const response = await request(app)
+        .post(`/api/groups/${group.body.id}/import-csv`)
+        .set(auth(token))
+        .send({
+          csv: "name,phone,email,problem_reason,notes\nCSV One,+50955000002,one@example.com,non paye,first\nExisting CSV,+50955000009,new@example.com,deja la,second\nCSV Bad,,bad@example.com,missing phone,bad\nCSV One,+50955000002,one@example.com,duplicate,dup"
+        });
+
+      expect(response.status).toBe(200);
+      expectJson(response);
+      expect(response.body.created).toBe(1);
+      expect(response.body.existing).toBe(2);
+      expect(response.body.invalid).toBe(1);
+      expect(response.body.added_to_group).toBe(2);
+      expect(response.body.duplicates_ignored).toBe(1);
+      expect(response.body.total_rows).toBe(4);
+
+      const members = await request(app).get(`/api/groups/${group.body.id}/members`).set(auth(token));
+      expect(members.status).toBe(200);
+      expect(members.body).toHaveLength(2);
+      expect(members.body.some((member) => member.problem_reason === "non paye")).toBe(true);
+      expect(await Lead.count()).toBe(2);
+    });
+
+    test("PATCH and DELETE group member update metadata and remove membership only", async () => {
+      const token = await loginAsAdmin();
+      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Patch Members" });
+      const lead = await Lead.create({ name: "Patch Lead", phone: "+50955000010", status: "new" });
+      const member = await request(app)
+        .post(`/api/groups/${group.body.id}/members`)
+        .set(auth(token))
+        .send({ contact_type: "lead", contact_id: lead.id });
+
+      const patched = await request(app)
+        .patch(`/api/groups/${group.body.id}/members/${member.body.id}`)
+        .set(auth(token))
+        .send({ problem_reason: "client non paye", notes: "relancer vendredi" });
+      expect(patched.status).toBe(200);
+      expect(patched.body.problem_reason).toBe("client non paye");
+      expect(patched.body.notes).toBe("relancer vendredi");
+
+      const removed = await request(app)
+        .delete(`/api/groups/${group.body.id}/members/${member.body.id}`)
+        .set(auth(token));
+      expect(removed.status).toBe(200);
+      expect(await ContactGroupMember.count({ where: { group_id: group.body.id } })).toBe(0);
+      expect(await Lead.findByPk(lead.id)).toBeTruthy();
+    });
+
+    test("POST /api/groups/:id/send-message dry_run renders recipients", async () => {
+      const token = await loginAsAdmin();
+      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Coaching prive" });
+      const lead = await Lead.create({ name: "Dry Run Lead", phone: "+50955000003", status: "new" });
+      await request(app)
+        .post(`/api/groups/${group.body.id}/members`)
+        .set(auth(token))
+        .send({ contact_type: "lead", contact_id: lead.id });
+
+      const response = await request(app)
+        .post(`/api/groups/${group.body.id}/send-message`)
+        .set(auth(token))
+        .send({ dry_run: true, message_template: "Bonjour {{name}} du groupe {{groupName}}" });
+
+      expect(response.status).toBe(200);
+      expectJson(response);
+      expect(response.body.dry_run).toBe(true);
+      expect(response.body.preview_token).toBeDefined();
+      expect(response.body.recipients[0].message).toContain("Dry Run Lead");
+      expect(response.body.recipients[0].message).toContain("Coaching prive");
+    });
+
+    test("POST /api/groups/:id/send-message requires dry_run before real send", async () => {
+      const token = await loginAsAdmin();
+      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "No direct send" });
+      const lead = await Lead.create({ name: "No Direct Lead", phone: "+50955000004", status: "new" });
+      await request(app)
+        .post(`/api/groups/${group.body.id}/members`)
+        .set(auth(token))
+        .send({ contact_type: "lead", contact_id: lead.id });
+
+      const response = await request(app)
+        .post(`/api/groups/${group.body.id}/send-message`)
+        .set(auth(token))
+        .send({ dry_run: false, message_template: "Bonjour {{name}}" });
+
+      expect(response.status).toBe(409);
+      expect(response.body.message).toMatch(/dry_run/);
+    });
+
+    test("POST /api/groups/:id/send-message sends after dry_run with test mock", async () => {
+      const token = await loginAsAdmin();
+      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Send Group" });
+      const lead = await Lead.create({ name: "Send Lead", phone: "+50955000005", status: "new" });
+      const student = await Student.create({ name: "Send Student", phone: "+50955000006", status: "at_risk" });
+      await request(app).post(`/api/groups/${group.body.id}/members`).set(auth(token)).send({ contact_type: "lead", contact_id: lead.id });
+      await request(app).post(`/api/groups/${group.body.id}/members`).set(auth(token)).send({ contact_type: "student", contact_id: student.id });
+
+      const preview = await request(app)
+        .post(`/api/groups/${group.body.id}/send-message`)
+        .set(auth(token))
+        .send({ dry_run: true, message_template: "Bonjour {{name}}" });
+      const response = await request(app)
+        .post(`/api/groups/${group.body.id}/send-message`)
+        .set(auth(token))
+        .send({
+          dry_run: false,
+          preview_token: preview.body.preview_token,
+          message_template: "Bonjour {{name}}"
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.sent).toBe(2);
+      expect(await Message.count({ where: { lead_id: lead.id } })).toBe(1);
+      expect(await StudentAction.count({ where: { student_id: student.id, type: "message" } })).toBe(1);
+    });
+
+    test("GET /api/groups requires JWT", async () => {
+      const response = await request(app).get("/api/groups");
+
+      expect(response.status).toBe(401);
+      expectJson(response);
     });
   });
 

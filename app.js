@@ -6,6 +6,7 @@ const followupRoutes = require("./routes/followupRoutes");
 const tagRoutes = require("./routes/tagRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const activationRoutes = require("./routes/activationRoutes");
+const groupRoutes = require("./routes/groupRoutes");
 const trackingRoutes = require("./routes/trackingRoutes");
 const { authenticateToken } = require("./middleware/authMiddleware");
 const { apiLimiter } = require("./middleware/rateLimiters");
@@ -49,6 +50,7 @@ app.use("/api/followups", authenticateToken, followupRoutes);
 app.use("/api/tags", authenticateToken, tagRoutes);
 app.use("/api/dashboard", authenticateToken, dashboardRoutes);
 app.use("/api/activation", authenticateToken, activationRoutes);
+app.use("/api/groups", authenticateToken, groupRoutes);
 
 app.use("/api", (_req, res) => {
   res.status(404).json({ message: "API route not found" });

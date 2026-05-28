@@ -10,6 +10,8 @@ const Student = require("./Student");
 const StudentAction = require("./StudentAction");
 const TrackingEvent = require("./TrackingEvent");
 const Task = require("./Task");
+const ContactGroup = require("./ContactGroup");
+const ContactGroupMember = require("./ContactGroupMember");
 
 Lead.hasMany(Message, {
   foreignKey: "lead_id",
@@ -112,6 +114,28 @@ Task.belongsTo(User, {
   as: "assignee"
 });
 
+User.hasMany(ContactGroup, {
+  foreignKey: "created_by",
+  as: "contact_groups",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE"
+});
+ContactGroup.belongsTo(User, {
+  foreignKey: "created_by",
+  as: "creator"
+});
+
+ContactGroup.hasMany(ContactGroupMember, {
+  foreignKey: "group_id",
+  as: "members",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE"
+});
+ContactGroupMember.belongsTo(ContactGroup, {
+  foreignKey: "group_id",
+  as: "group"
+});
+
 module.exports = {
   sequelize,
   Lead,
@@ -124,5 +148,7 @@ module.exports = {
   Student,
   StudentAction,
   TrackingEvent,
-  Task
+  Task,
+  ContactGroup,
+  ContactGroupMember
 };

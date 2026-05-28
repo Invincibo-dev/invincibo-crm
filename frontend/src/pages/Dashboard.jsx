@@ -120,6 +120,34 @@ const Dashboard = () => {
             <button
               type="button"
               className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/contacts")}
+            >
+              Contacts
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/followups")}
+            >
+              Relances
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/activation")}
+            >
+              Activation
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/groups")}
+            >
+              Groupes
+            </button>
+            <button
+              type="button"
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
               onClick={() => navigate("/support")}
             >
               Support

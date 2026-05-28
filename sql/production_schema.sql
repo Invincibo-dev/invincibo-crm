@@ -101,6 +101,22 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS contact_groups (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  description TEXT NULL,
+  category VARCHAR(100) NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by INT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_contact_groups_created_by (created_by),
+  CONSTRAINT fk_contact_groups_user
+    FOREIGN KEY (created_by) REFERENCES users(id)
+    ON DELETE SET NULL
+    ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS student (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(120) NOT NULL,
@@ -110,6 +126,24 @@ CREATE TABLE IF NOT EXISTS student (
   last_action_at DATETIME NULL,
   INDEX idx_student_status (status),
   INDEX idx_student_last_action_at (last_action_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS contact_group_members (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  group_id INT NOT NULL,
+  contact_type ENUM('lead', 'student') NOT NULL,
+  contact_id INT NOT NULL,
+  problem_reason VARCHAR(255) NULL,
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_contact_group_member (group_id, contact_type, contact_id),
+  INDEX idx_contact_group_members_group_id (group_id),
+  INDEX idx_contact_group_members_contact (contact_type, contact_id),
+  CONSTRAINT fk_contact_group_members_group
+    FOREIGN KEY (group_id) REFERENCES contact_groups(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS tasks (
