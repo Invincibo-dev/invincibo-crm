@@ -17,6 +17,22 @@ const emptyStats = {
   leads_by_tag: []
 };
 
+const normalizeStats = (data) => {
+  const source = data && typeof data === "object" ? data : {};
+  return {
+    ...emptyStats,
+    ...source,
+    total_leads: Number(source.total_leads) || 0,
+    total_clients: Number(source.total_clients) || 0,
+    conversion_rate: Number(source.conversion_rate) || 0,
+    hot_leads: Number(source.hot_leads) || 0,
+    cold_leads: Number(source.cold_leads) || 0,
+    messages_sent: Number(source.messages_sent) || 0,
+    followups_pending: Number(source.followups_pending) || 0,
+    leads_by_tag: Array.isArray(source.leads_by_tag) ? source.leads_by_tag : []
+  };
+};
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [me, setMe] = useState(null);
@@ -32,7 +48,7 @@ const Dashboard = () => {
     try {
       const params = tag && tag !== "all" ? { tag } : {};
       const response = await api.get("/dashboard/stats", { params });
-      setStats(response.data || emptyStats);
+      setStats(normalizeStats(response.data));
     } catch (err) {
       if (err.response?.status === 401) {
         clearToken();
@@ -174,7 +190,7 @@ const Dashboard = () => {
         <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard title="Total Leads" value={stats.total_leads} color="text-sky-700" />
           <StatCard title="Clients" value={stats.total_clients} color="text-emerald-700" />
-          <StatCard title="Conversion %" value={`${stats.conversion_rate}%`} color="text-violet-700" />
+          <StatCard title="Conversion %" value={`${Number(stats.conversion_rate || 0).toFixed(2)}%`} color="text-violet-700" />
           <StatCard title="Leads Chauds" value={stats.hot_leads} color="text-orange-700" />
           <StatCard title="Messages Envoyes" value={stats.messages_sent} color="text-indigo-700" />
           <StatCard title="Relances en attente" value={stats.followups_pending} color="text-rose-700" />

@@ -46,7 +46,7 @@ const Activation = () => {
       api.get("/activation/students", { params })
     ]);
     setSummary(summaryRes.data);
-    setStudents(studentsRes.data || []);
+    setStudents(Array.isArray(studentsRes.data) ? studentsRes.data : []);
   };
 
   useEffect(() => {
@@ -111,7 +111,7 @@ const Activation = () => {
     setError("");
     try {
       const response = await api.get(`/activation/students/${student.id}/actions`);
-      setActions(response.data || []);
+      setActions(Array.isArray(response.data) ? response.data : []);
     } catch (err) {
       setError(err.response?.data?.message || "Actions introuvables.");
     }

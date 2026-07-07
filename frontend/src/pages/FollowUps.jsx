@@ -41,8 +41,8 @@ const FollowUps = () => {
       api.get("/followups/pending")
     ]);
     setMe(meRes.data);
-    setLeads(leadsRes.data || []);
-    setFollowups(followupsRes.data || []);
+    setLeads(Array.isArray(leadsRes.data) ? leadsRes.data : []);
+    setFollowups(Array.isArray(followupsRes.data) ? followupsRes.data : []);
   };
 
   useEffect(() => {

@@ -2,7 +2,8 @@ import React from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const TagBarChart = ({ data = [] }) => {
-  const normalized = data.map((item) => ({
+  const rows = Array.isArray(data) ? data : [];
+  const normalized = rows.map((item) => ({
     tag: item.tag || item.name || "Sans tag",
     total: Number(item.total) || 0
   }));

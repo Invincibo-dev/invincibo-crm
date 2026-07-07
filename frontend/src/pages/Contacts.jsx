@@ -157,9 +157,9 @@ const Contacts = () => {
     setError("");
     const [meRes, leadsRes, tagsRes] = await Promise.all([api.get("/auth/me"), api.get("/leads"), api.get("/tags")]);
     setMe(meRes.data);
-    const leadRows = leadsRes.data || [];
+    const leadRows = Array.isArray(leadsRes.data) ? leadsRes.data : [];
     setLeads(leadRows);
-    setTags(tagsRes.data || []);
+    setTags(Array.isArray(tagsRes.data) ? tagsRes.data : []);
     const tagPairs = await Promise.all(
       leadRows.map(async (lead) => {
         try {

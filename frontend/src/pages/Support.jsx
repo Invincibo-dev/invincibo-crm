@@ -64,7 +64,7 @@ const Support = () => {
   const loadTasks = async () => {
     setError("");
     const response = await api.get("/activation/tasks");
-    setTasks(response.data || []);
+    setTasks(Array.isArray(response.data) ? response.data : []);
   };
 
   const bootstrap = async () => {

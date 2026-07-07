@@ -35,7 +35,7 @@ const Groups = () => {
 
   const loadGroups = async () => {
     const response = await api.get("/groups");
-    setGroups(response.data || []);
+    setGroups(Array.isArray(response.data) ? response.data : []);
   };
 
   const loadGroup = async (id) => {
@@ -50,9 +50,9 @@ const Groups = () => {
       api.get("/leads"),
       api.get("/activation/students")
     ]);
-    setGroups(groupsRes.data || []);
-    setLeads(leadsRes.data || []);
-    setStudents(studentsRes.data || []);
+    setGroups(Array.isArray(groupsRes.data) ? groupsRes.data : []);
+    setLeads(Array.isArray(leadsRes.data) ? leadsRes.data : []);
+    setStudents(Array.isArray(studentsRes.data) ? studentsRes.data : []);
   };
 
   useEffect(() => {
@@ -263,7 +263,8 @@ const Groups = () => {
     }
   };
 
-  const previewStillMatches = preview && preview.recipients && preview.total_targets >= 0;
+  const previewRecipients = Array.isArray(preview?.recipients) ? preview.recipients : [];
+  const previewStillMatches = preview && previewRecipients.length >= 0 && preview.total_targets >= 0;
 
   if (loading) {
     return (
@@ -436,7 +437,7 @@ const Groups = () => {
                     <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <div className="text-sm font-semibold text-slate-900">Apercu: {preview.total_targets} destinataire(s)</div>
                       <div className="mt-2 max-h-64 space-y-2 overflow-auto">
-                        {preview.recipients.map((item) => (
+                        {previewRecipients.map((item) => (
                           <div key={item.member_id} className="rounded-lg bg-white p-2 text-sm">
                             <div className="font-medium text-slate-800">{item.name} - {item.phone}</div>
                             <div className="text-slate-600">{item.message}</div>
