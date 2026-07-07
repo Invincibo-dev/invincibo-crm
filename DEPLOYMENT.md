@@ -7,6 +7,8 @@ This project is deployed as two separate production surfaces:
 
 The runtime backend is the root Node/Express app launched by `server.js`. The `legacy_src/` directory is archived legacy backend code and is not part of runtime, tests, or deployment.
 
+Use Node.js `22.x` on Hostinger. The project declares `node >=22.12.0 <25` because the frontend build uses Vite 8, which requires Node `^20.19.0` or `>=22.12.0`. Hostinger currently supports Node.js `18.x`, `20.x`, `22.x`, and `24.x`; choose `22.x` unless you intentionally validate on `24.x`.
+
 ## 1) Repository Layout
 
 Required production files:
@@ -67,6 +69,12 @@ npm test -- --runInBand
 
 Create the backend `.env` on Hostinger from `.env.example`. Never commit `.env`.
 
+A Hostinger-specific backend template is available at:
+
+```text
+deploy/backend.env.hostinger.example
+```
+
 Minimum production values:
 
 ```bash
@@ -82,6 +90,7 @@ DB_PORT=3306
 DB_NAME=crm_db
 DB_USER=<hostinger_mysql_user>
 DB_PASSWORD=<hostinger_mysql_password>
+DB_AUTO_SYNC=false
 
 TRACKING_BASE_URL=https://api.cv-pam.com
 TRACKING_SECRET=<long_random_tracking_secret>
@@ -93,9 +102,16 @@ TRACKING_DEST_DEFAULT=https://cv-pam.com
 WHATSAPP_ACCESS_TOKEN=<whatsapp_cloud_api_token>
 WHATSAPP_PHONE_NUMBER_ID=<whatsapp_phone_number_id>
 WHATSAPP_COOLDOWN_HOURS=6
+FOLLOWUP_CRON_ENABLED=false
 ```
 
 Optional variables are documented in `.env.example`.
+
+Use `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` for production. The backend still accepts the older local aliases `WHATSAPP_TOKEN` and `PHONE_NUMBER_ID` as fallbacks, but they should not be used for the Hostinger environment.
+
+Set `FOLLOWUP_CRON_ENABLED=true` only after the follow-up automation has been validated in production. When enabled, the backend will run the scheduled follow-up processor from the Node.js process.
+
+On startup with `NODE_ENV=production`, the backend validates required production settings before connecting to MySQL. It exits if required values are missing, still set to placeholders, if `DB_AUTO_SYNC=true`, if `DB_DIALECT` is not `mysql`, or if `CORS_ORIGIN=*`.
 
 Security expectations:
 
@@ -118,6 +134,14 @@ Import it into Hostinger MySQL:
 ```bash
 mysql -h <DB_HOST> -u <DB_USER> -p < sql/production_schema.sql
 ```
+
+If importing through Hostinger phpMyAdmin, use this Hostinger-safe variant instead:
+
+```text
+sql/hostinger_production_schema.sql
+```
+
+This file does not contain `CREATE DATABASE` or `USE crm_db` because Hostinger MySQL users usually cannot create databases from phpMyAdmin. Create the database from the Hostinger panel first, open that database in phpMyAdmin, then import `sql/hostinger_production_schema.sql`.
 
 `sql/production_schema.sql` creates `crm_db` and all tables required by the real root backend:
 
@@ -164,6 +188,12 @@ Create `frontend/.env.production` locally or in the Hostinger build environment:
 ```bash
 VITE_API_BASE_URL=https://api.cv-pam.com/api
 VITE_TRACKING_BASE_URL=https://api.cv-pam.com
+```
+
+A copy-safe template is available at:
+
+```text
+deploy/frontend.env.production.example
 ```
 
 Do not commit `frontend/.env.production` if it ever contains environment-specific values.
@@ -221,7 +251,45 @@ so public tracking redirects use:
 https://api.cv-pam.com/t/:token
 ```
 
-## 8) Production Checks
+## 8) Follow-up Cron
+
+The CRM follow-up automation is controlled by:
+
+```bash
+FOLLOWUP_CRON_ENABLED=false
+```
+
+Operational rule:
+
+- Keep `FOLLOWUP_CRON_ENABLED=false` for the first backend deployment.
+- Validate login, lead creation, WhatsApp credentials, and manual processing first.
+- Enable `FOLLOWUP_CRON_ENABLED=true` only when automatic follow-up sending is ready.
+- Run exactly one backend Node.js process with the cron enabled. If multiple app instances run with `FOLLOWUP_CRON_ENABLED=true`, each instance can execute the same scheduler every 5 minutes.
+- Keep Hostinger/PM2 process count at one instance unless the cron is moved to a separate worker process.
+
+When enabled, `server.js` starts `jobs/followupCron.js` after a successful database connection. The scheduler runs every 5 minutes and calls the same processor used by the admin endpoint:
+
+```text
+POST /api/followups/process
+```
+
+Manual validation before enabling the cron:
+
+```bash
+curl -X POST https://api.cv-pam.com/api/followups/process \
+  -H "Authorization: Bearer <admin_jwt>"
+```
+
+Expected: JSON response with `result.total`, `result.sent`, `result.failed`, and `result.skipped`.
+
+Required before setting `FOLLOWUP_CRON_ENABLED=true`:
+
+- `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` are valid.
+- Production MySQL schema has `followups`, `leads`, and `messages`.
+- At least one pending follow-up exists with `scheduled_date <= NOW()`.
+- Backend logs are accessible for `[Cron] Follow-up processor result` and `[Cron] Follow-up processor error`.
+
+## 9) Production Checks
 
 Backend health:
 
@@ -258,7 +326,16 @@ curl -I "https://api.cv-pam.com/t/<token>"
 
 Expected: HTTP redirect to the configured `TRACKING_DEST_*` URL.
 
-## 9) Local Development
+Follow-up processor:
+
+```bash
+curl -X POST https://api.cv-pam.com/api/followups/process \
+  -H "Authorization: Bearer <admin_jwt>"
+```
+
+Expected: JSON summary of processed pending follow-ups. Run this manually before enabling `FOLLOWUP_CRON_ENABLED=true`.
+
+## 10) Local Development
 
 Local frontend:
 
@@ -286,7 +363,7 @@ The backend CORS default is strict:
 - production default: `https://cv-pam.com`
 - development default: `http://localhost:5173`
 
-## 10) Update Workflow
+## 11) Update Workflow
 
 Backend:
 
@@ -306,3 +383,44 @@ npm run build
 ```
 
 Then upload or serve the new `frontend/dist/` contents.
+
+## 12) Hostinger Final Checklist
+
+Runtime:
+
+- Select Node.js `22.x` for the backend app in Hostinger.
+- Confirm `npm --version` is `>=10`.
+- Backend app root points to the repository root.
+- Backend start command is `npm start`.
+- Backend entry point is `server.js`.
+
+MySQL:
+
+- Create the Hostinger MySQL database and user.
+- Import `sql/production_schema.sql` for a fresh install.
+- Confirm the production `.env` uses the exact Hostinger DB host, database name, user, and password.
+- Keep `DB_AUTO_SYNC=false`.
+
+Backend environment:
+
+- Use `deploy/backend.env.hostinger.example` as the checklist.
+- Replace all `<...>` placeholders before starting the app.
+- Generate fresh `JWT_SECRET` and `TRACKING_SECRET`.
+- Set `CORS_ORIGIN=https://cv-pam.com`.
+- Set `TRACKING_BASE_URL=https://api.cv-pam.com`.
+- Keep `FOLLOWUP_CRON_ENABLED=false` for the first launch.
+
+Frontend:
+
+- Create `frontend/.env.production` from `deploy/frontend.env.production.example`.
+- Run `cd frontend && npm ci && npm run build`.
+- Upload or serve the contents of `frontend/dist/` for `https://cv-pam.com`.
+- Confirm SPA fallback routes unknown paths to `index.html`.
+
+Go-live checks:
+
+- `curl https://api.cv-pam.com/health` returns `{"status":"ok"}`.
+- Login works from `https://cv-pam.com`.
+- Browser network requests go to `https://api.cv-pam.com/api`.
+- No CORS errors appear in the browser console.
+- Manual `POST /api/followups/process` works before enabling the cron.

@@ -3,7 +3,7 @@ const { processPendingFollowups } = require("../services/whatsappService");
 
 const startFollowupCron = () => {
   // Marketing automation runner: executes every 5 minutes.
-  cron.schedule("*/5 * * * *", async () => {
+  return cron.schedule("*/5 * * * *", async () => {
     try {
       const result = await processPendingFollowups();
       if (process.env.NODE_ENV !== "test") {

@@ -2,7 +2,16 @@ const crypto = require("crypto");
 const { TrackingEvent, Student } = require("../../models");
 const { AppError } = require("./errors");
 
-const TRACKING_SECRET = process.env.TRACKING_SECRET || "dev_tracking_secret_change_me";
+const getTrackingSecret = () => {
+  const secret = process.env.TRACKING_SECRET;
+  if (secret) {
+    return secret;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new AppError("Tracking configuration error", 500);
+  }
+  return "dev_tracking_secret_change_me";
+};
 
 const normalizeType = (value) => String(value || "").trim().toLowerCase();
 
@@ -25,7 +34,7 @@ const base64UrlEncode = (value) => Buffer.from(value).toString("base64url");
 const base64UrlDecode = (value) => Buffer.from(value, "base64url").toString("utf8");
 
 const sign = (payloadPart) =>
-  crypto.createHmac("sha256", TRACKING_SECRET).update(payloadPart).digest("base64url");
+  crypto.createHmac("sha256", getTrackingSecret()).update(payloadPart).digest("base64url");
 
 const buildPayload = (studentId, type) => ({
   studentId: Number(studentId),
