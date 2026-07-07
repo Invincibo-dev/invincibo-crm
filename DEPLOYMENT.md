@@ -99,19 +99,19 @@ TRACKING_DEST_ONBOARDING=https://cv-pam.com/onboarding
 TRACKING_DEST_PAYMENT=https://cv-pam.com/payment
 TRACKING_DEST_DEFAULT=https://cv-pam.com
 
-WHATSAPP_ACCESS_TOKEN=<whatsapp_cloud_api_token>
-WHATSAPP_PHONE_NUMBER_ID=<whatsapp_phone_number_id>
+WHATSAPP_ACCESS_TOKEN=
+WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_COOLDOWN_HOURS=6
 FOLLOWUP_CRON_ENABLED=false
 ```
 
 Optional variables are documented in `.env.example`.
 
-Use `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` for production. The backend still accepts the older local aliases `WHATSAPP_TOKEN` and `PHONE_NUMBER_ID` as fallbacks, but they should not be used for the Hostinger environment.
+Use `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` for production WhatsApp sending. They can stay empty for the first backend launch if `FOLLOWUP_CRON_ENABLED=false`, but lead creation or group messaging that attempts to send WhatsApp messages will fail until valid values are configured. The backend still accepts the older local aliases `WHATSAPP_TOKEN` and `PHONE_NUMBER_ID` as fallbacks, but they should not be used for the Hostinger environment.
 
 Set `FOLLOWUP_CRON_ENABLED=true` only after the follow-up automation has been validated in production. When enabled, the backend will run the scheduled follow-up processor from the Node.js process.
 
-On startup with `NODE_ENV=production`, the backend validates required production settings before connecting to MySQL. It exits if required values are missing, still set to placeholders, if `DB_AUTO_SYNC=true`, if `DB_DIALECT` is not `mysql`, or if `CORS_ORIGIN=*`.
+On startup with `NODE_ENV=production`, the backend validates required production settings before connecting to MySQL. It exits if required values are missing, still set to placeholders, if `DB_AUTO_SYNC=true`, if `DB_DIALECT` is not `mysql`, or if `CORS_ORIGIN=*`. WhatsApp credentials are required at startup only when `FOLLOWUP_CRON_ENABLED=true`.
 
 Security expectations:
 
@@ -408,6 +408,7 @@ Backend environment:
 - Generate fresh `JWT_SECRET` and `TRACKING_SECRET`.
 - Set `CORS_ORIGIN=https://cv-pam.com`.
 - Set `TRACKING_BASE_URL=https://api.cv-pam.com`.
+- Leave WhatsApp values empty only for the first launch with `FOLLOWUP_CRON_ENABLED=false`.
 - Keep `FOLLOWUP_CRON_ENABLED=false` for the first launch.
 
 Frontend:

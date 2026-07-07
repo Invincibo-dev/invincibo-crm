@@ -30,10 +30,14 @@ const validateProductionConfig = () => {
     "CORS_ORIGIN",
     "JWT_SECRET",
     "TRACKING_BASE_URL",
-    "TRACKING_SECRET",
-    "WHATSAPP_ACCESS_TOKEN",
-    "WHATSAPP_PHONE_NUMBER_ID"
+    "TRACKING_SECRET"
   ].forEach((name) => requireProductionValue(name, missing));
+
+  if (process.env.FOLLOWUP_CRON_ENABLED === "true") {
+    ["WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID"].forEach((name) =>
+      requireProductionValue(name, missing)
+    );
+  }
 
   const dialect = process.env.DB_DIALECT || "mysql";
   if (dialect !== "mysql") {
