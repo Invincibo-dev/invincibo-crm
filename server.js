@@ -10,9 +10,8 @@ const nodeEnv = process.env.NODE_ENV || "development";
 const dbAutoSync = process.env.DB_AUTO_SYNC === "true";
 const followupCronEnabled = process.env.FOLLOWUP_CRON_ENABLED === "true";
 
-const startServer = async () => {
+const initializeRuntime = async () => {
   try {
-    validateProductionConfig();
     await sequelize.authenticate();
 
     if (dbAutoSync && nodeEnv !== "production") {
@@ -23,9 +22,19 @@ const startServer = async () => {
       startFollowupCron();
       console.log("Follow-up cron enabled");
     }
+  } catch (error) {
+    console.error("Failed to initialize runtime:", error.message);
+    process.exit(1);
+  }
+};
+
+const startServer = () => {
+  try {
+    validateProductionConfig();
 
     app.listen(port, () => {
       console.log(`CRM API listening on port ${port}`);
+      initializeRuntime();
     });
   } catch (error) {
     console.error("Failed to start server:", error.message);
