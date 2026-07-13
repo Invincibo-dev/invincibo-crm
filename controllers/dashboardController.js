@@ -28,7 +28,8 @@ const getDashboardStats = async (_req, res, next) => {
       )
     ]);
 
-    const conversionRate = totalLeads === 0 ? 0 : Number(((totalClients / totalLeads) * 100).toFixed(2));
+    const conversionRate =
+      totalLeads === 0 ? 0 : Number(((totalClients / totalLeads) * 100).toFixed(2));
 
     return res.json({
       total_leads: totalLeads,

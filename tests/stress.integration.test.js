@@ -66,7 +66,8 @@ const makeRng = (seed = 123456) => {
 
 const seeded = makeRng(20260422);
 const pick = (arr) => arr[Math.floor(seeded() * arr.length)];
-const randomStatus = () => pick(["paid_training", "onboarding", "step1", "active", "inactive", "blocked"]);
+const randomStatus = () =>
+  pick(["paid_training", "onboarding", "step1", "active", "inactive", "blocked"]);
 
 const createStudentPayload = (index, prefix = "stress") => ({
   name: `${prefix}-student-${index}`,
@@ -187,7 +188,12 @@ describe("Activation Engine stress/load suite", () => {
     const actionTypes = ["onboarding", "step1", "support", "message", "activation"];
     students.forEach((student, idx) => {
       for (let j = 0; j < 5; j += 1) {
-        jobs.push({ studentId: student.id, type: actionTypes[(idx + j) % actionTypes.length], idx, j });
+        jobs.push({
+          studentId: student.id,
+          type: actionTypes[(idx + j) % actionTypes.length],
+          idx,
+          j
+        });
       }
     });
 
@@ -228,7 +234,11 @@ describe("Activation Engine stress/load suite", () => {
         request(app)
           .post("/api/activation/students")
           .set(authHeaders())
-          .send({ name: `status-student-${i}`, phone: `+50935${String(100000 + i).slice(-6)}`, status: "paid_training" })
+          .send({
+            name: `status-student-${i}`,
+            phone: `+50935${String(100000 + i).slice(-6)}`,
+            status: "paid_training"
+          })
       );
       createdIds.push(response.body.id);
     }
@@ -240,8 +250,13 @@ describe("Activation Engine stress/load suite", () => {
       createdIds,
       async (id) => {
         for (const actionType of transitionFlow) {
-          const { result: response } = await withMetric("PATCH /api/activation/students/:id/status", () =>
-            request(app).patch(`/api/activation/students/${id}/status`).set(authHeaders()).send({ status: actionType })
+          const { result: response } = await withMetric(
+            "PATCH /api/activation/students/:id/status",
+            () =>
+              request(app)
+                .patch(`/api/activation/students/${id}/status`)
+                .set(authHeaders())
+                .send({ status: actionType })
           );
           expect(response.status).toBe(200);
           expect(response.headers["content-type"]).toMatch(/application\/json/);
@@ -340,7 +355,9 @@ describe("Activation Engine stress/load suite", () => {
     const avg = times.reduce((a, b) => a + b, 0) / times.length;
     const max = Math.max(...times);
 
-    console.log(`Scenario dashboard-load: ${elapsed}ms total, avg=${avg.toFixed(2)}ms, max=${max}ms`);
+    console.log(
+      `Scenario dashboard-load: ${elapsed}ms total, avg=${avg.toFixed(2)}ms, max=${max}ms`
+    );
     expect(avg).toBeLessThan(500);
   });
 
@@ -354,11 +371,14 @@ describe("Activation Engine stress/load suite", () => {
       createJobs,
       async (i) =>
         withMetric("POST /api/activation/students", () =>
-          request(app).post("/api/activation/students").set(authHeaders()).send({
-            name: `cycle-${i}`,
-            phone: `+50939${String(100000 + i).slice(-6)}`,
-            status: "paid_training"
-          })
+          request(app)
+            .post("/api/activation/students")
+            .set(authHeaders())
+            .send({
+              name: `cycle-${i}`,
+              phone: `+50939${String(100000 + i).slice(-6)}`,
+              status: "paid_training"
+            })
         ),
       20
     );
@@ -369,7 +389,10 @@ describe("Activation Engine stress/load suite", () => {
 
     const students = createResponses.map(({ result }) => result.body);
 
-    const actionJobs = Array.from({ length: 60 }, (_, i) => ({ i, student: students[i % students.length] }));
+    const actionJobs = Array.from({ length: 60 }, (_, i) => ({
+      i,
+      student: students[i % students.length]
+    }));
     const actionsBurst = await runInBatches(
       actionJobs,
       async (job) => {

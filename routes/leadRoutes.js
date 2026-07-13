@@ -28,10 +28,27 @@ router.put(
   validateUpdateLeadStatusBody,
   updateLeadStatus
 );
-router.put("/:id/cancel-sequence", authorizeRoles("admin", "agent"), validateIdParam("id"), cancelLeadSequence);
-router.post("/:id/tags", authorizeRoles("admin", "agent"), validateIdParam("id"), validateAddTagBody, addTagToLead);
+router.put(
+  "/:id/cancel-sequence",
+  authorizeRoles("admin", "agent"),
+  validateIdParam("id"),
+  cancelLeadSequence
+);
+router.post(
+  "/:id/tags",
+  authorizeRoles("admin", "agent"),
+  validateIdParam("id"),
+  validateAddTagBody,
+  addTagToLead
+);
 router.get("/:id/tags", authorizeRoles("admin", "agent"), validateIdParam("id"), getLeadTags);
-router.delete("/:leadId/tags/:tagId", authorizeRoles("admin", "agent"), validateIdParam("leadId"), validateIdParam("tagId"), removeTagFromLead);
+router.delete(
+  "/:leadId/tags/:tagId",
+  authorizeRoles("admin", "agent"),
+  validateIdParam("leadId"),
+  validateIdParam("tagId"),
+  removeTagFromLead
+);
 router.delete("/:id", authorizeRoles("admin"), validateIdParam("id"), deleteLead);
 
 module.exports = router;

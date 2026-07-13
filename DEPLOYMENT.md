@@ -83,6 +83,7 @@ PORT=<hostinger_node_port>
 CORS_ORIGIN=https://cv-pam.com
 JWT_SECRET=<long_random_secret>
 JWT_EXPIRES_IN=8h
+ADMIN_BOOTSTRAP_TOKEN=<one_time_random_secret>
 
 DB_DIALECT=mysql
 DB_HOST=<hostinger_mysql_host>
@@ -94,6 +95,7 @@ DB_AUTO_SYNC=false
 
 TRACKING_BASE_URL=https://api.cv-pam.com
 TRACKING_SECRET=<long_random_tracking_secret>
+TRACKING_TOKEN_TTL_SECONDS=2592000
 TRACKING_DEST_ACTIVATION=https://cv-pam.com/activation
 TRACKING_DEST_ONBOARDING=https://cv-pam.com/onboarding
 TRACKING_DEST_PAYMENT=https://cv-pam.com/payment
@@ -103,7 +105,13 @@ WHATSAPP_ACCESS_TOKEN=
 WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_COOLDOWN_HOURS=6
 FOLLOWUP_CRON_ENABLED=false
+WHATSAPP_FOLLOWUP_MAX_ATTEMPTS=3
 ```
+
+The first `POST /api/auth/register` request must create an `admin` and include
+`x-admin-bootstrap-token: <ADMIN_BOOTSTRAP_TOKEN>`. After that account is created,
+remove `ADMIN_BOOTSTRAP_TOKEN` from the environment and restart the API. Every
+later user creation requires an authenticated administrator.
 
 Optional variables are documented in `.env.example`.
 
@@ -168,6 +176,24 @@ Legacy SQL files are references only and are not the fresh production install pa
 - `sql/phase8_audit_logs.sql`
 
 For an existing production DB, do not rerun the fresh schema blindly. Compare first and write a targeted migration.
+
+For the critical-stabilization release, apply
+`sql/phase9_critical_stabilization.sql` once before starting the new backend.
+Follow-ups now use `pending -> processing -> completed` delivery states. An
+ambiguous network result remains `processing` and must be reconciled with the
+WhatsApp provider before any manual retry; this prevents automatic duplicates.
+
+After the phase 9 prerequisite, all current and future schema changes are applied
+through the versioned runner:
+
+```bash
+npm run db:migrate
+npm run db:migrate:status
+```
+
+Run migrations after creating a verified backup and before starting the new API
+process. See `DATABASE.md` for the schema map, pagination contract, backup, and
+restore-validation procedure.
 
 ## 6) Frontend Domain
 
@@ -300,7 +326,7 @@ curl https://api.cv-pam.com/health
 Expected:
 
 ```json
-{"status":"ok"}
+{ "status": "ok" }
 ```
 
 Login API:

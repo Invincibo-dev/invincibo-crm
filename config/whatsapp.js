@@ -15,7 +15,9 @@ const validateWhatsAppConfig = () => {
   const { token, phoneNumberId } = getWhatsAppConfig();
 
   if (!token || !phoneNumberId) {
-    throw new Error("WhatsApp env vars are missing: WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID are required");
+    throw new Error(
+      "WhatsApp env vars are missing: WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID are required"
+    );
   }
 };
 

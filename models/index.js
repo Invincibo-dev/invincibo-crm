@@ -12,6 +12,7 @@ const TrackingEvent = require("./TrackingEvent");
 const Task = require("./Task");
 const ContactGroup = require("./ContactGroup");
 const ContactGroupMember = require("./ContactGroupMember");
+const BootstrapLock = require("./BootstrapLock");
 
 Lead.hasMany(Message, {
   foreignKey: "lead_id",
@@ -33,6 +34,17 @@ Lead.hasMany(FollowUp, {
 FollowUp.belongsTo(Lead, {
   foreignKey: "lead_id",
   as: "lead"
+});
+
+FollowUp.hasOne(Message, {
+  foreignKey: "followup_id",
+  as: "delivery",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE"
+});
+Message.belongsTo(FollowUp, {
+  foreignKey: "followup_id",
+  as: "followup"
 });
 
 Lead.belongsToMany(Tag, {
@@ -150,5 +162,6 @@ module.exports = {
   TrackingEvent,
   Task,
   ContactGroup,
-  ContactGroupMember
+  ContactGroupMember,
+  BootstrapLock
 };

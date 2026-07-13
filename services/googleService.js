@@ -1,7 +1,11 @@
 const { peopleApi } = require("../config/google");
 
 const addContactToGoogle = async (name, phone, email) => {
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REFRESH_TOKEN) {
+  if (
+    !process.env.GOOGLE_CLIENT_ID ||
+    !process.env.GOOGLE_CLIENT_SECRET ||
+    !process.env.GOOGLE_REFRESH_TOKEN
+  ) {
     throw new Error("Google OAuth env vars are missing");
   }
 

@@ -1,6 +1,7 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { User } = require("../models");
+const crypto = require("crypto");
+const { User, BootstrapLock, sequelize } = require("../models");
 const { recordAudit } = require("../services/auditService");
 
 const ALLOWED_ROLES = ["admin", "agent"];
@@ -22,12 +23,31 @@ const ensureJwtSecret = () => {
   }
 };
 
+const safeEqual = (left, right) => {
+  const leftBuffer = Buffer.from(String(left || ""));
+  const rightBuffer = Buffer.from(String(right || ""));
+  return (
+    leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer)
+  );
+};
+
+const requireBootstrapToken = (providedToken) => {
+  const configuredToken = process.env.ADMIN_BOOTSTRAP_TOKEN;
+  if (!configuredToken || !safeEqual(providedToken, configuredToken)) {
+    const error = new Error("Invalid or missing admin bootstrap token");
+    error.statusCode = 403;
+    throw error;
+  }
+};
+
 const register = async (req, res, next) => {
   try {
     ensureJwtSecret();
 
     const name = String(req.body.name || "").trim();
-    const email = String(req.body.email || "").trim().toLowerCase();
+    const email = String(req.body.email || "")
+      .trim()
+      .toLowerCase();
     const password = String(req.body.password || "");
     const requestedRole = String(req.body.role || "agent").toLowerCase();
 
@@ -42,24 +62,46 @@ const register = async (req, res, next) => {
     }
 
     const totalUsers = await User.count();
-    if (totalUsers > 0) {
-      if (!req.user || req.user.role !== "admin") {
-        return res.status(403).json({ message: "Only admin can create users" });
+    const isBootstrap = totalUsers === 0;
+    if (isBootstrap) {
+      requireBootstrapToken(req.get("x-admin-bootstrap-token"));
+      if (requestedRole !== "admin") {
+        return res.status(400).json({ message: "The bootstrap user must be an admin" });
       }
-    }
-
-    const existingUser = await User.findOne({ where: { email } });
-    if (existingUser) {
-      return res.status(409).json({ message: "Email already exists" });
+    } else if (!req.user || req.user.role !== "admin") {
+      return res.status(403).json({ message: "Only admin can create users" });
     }
 
     const password_hash = await bcrypt.hash(password, 10);
-    const user = await User.create({
-      name,
-      email,
-      password_hash,
-      role: requestedRole
-    });
+    let user;
+    try {
+      user = await sequelize.transaction(async (transaction) => {
+        const existingUser = await User.findOne({ where: { email }, transaction });
+        if (existingUser) {
+          const error = new Error("Email already exists");
+          error.statusCode = 409;
+          throw error;
+        }
+
+        if (isBootstrap) {
+          const usersInsideTransaction = await User.count({ transaction });
+          if (usersInsideTransaction > 0) {
+            const error = new Error("Admin bootstrap has already been completed");
+            error.statusCode = 409;
+            throw error;
+          }
+          await BootstrapLock.create({ key: "initial_admin" }, { transaction });
+        }
+
+        return User.create({ name, email, password_hash, role: requestedRole }, { transaction });
+      });
+    } catch (error) {
+      if (error.name === "SequelizeUniqueConstraintError" && isBootstrap) {
+        error.statusCode = 409;
+        error.message = "Admin bootstrap has already been completed";
+      }
+      throw error;
+    }
 
     const token = signToken(user);
     await recordAudit(req, {
@@ -88,7 +130,9 @@ const login = async (req, res, next) => {
   try {
     ensureJwtSecret();
 
-    const email = String(req.body.email || "").trim().toLowerCase();
+    const email = String(req.body.email || "")
+      .trim()
+      .toLowerCase();
     const password = String(req.body.password || "");
 
     if (!email || !password) {

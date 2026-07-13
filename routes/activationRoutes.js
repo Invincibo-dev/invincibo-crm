@@ -5,6 +5,7 @@ const automationService = require("../services/activation/automationService");
 const taskController = require("../controllers/taskController");
 const { Student } = require("../models");
 const { authorizeRoles } = require("../middleware/authMiddleware");
+const { getPagination, sendCollection } = require("../services/pagination");
 
 const router = express.Router();
 
@@ -28,8 +29,13 @@ router.patch("/tasks/:id/resolve", authorizeRoles("admin", "agent"), taskControl
 router.get("/students", authorizeRoles("admin", "agent"), async (req, res, next) => {
   try {
     const status = normalize(req.query.status).toLowerCase();
-    const students = await activationService.listStudents({ status: status || undefined });
-    return res.json(students);
+    const pagination = getPagination(req.query);
+    const { rows, count } = await activationService.listStudents({
+      status: status || undefined,
+      limit: pagination.limit,
+      offset: pagination.offset
+    });
+    return sendCollection(res, rows, count, pagination);
   } catch (error) {
     return next(error);
   }
@@ -48,59 +54,96 @@ router.post("/students", authorizeRoles("admin", "agent"), async (req, res, next
   }
 });
 
-router.get("/students/:id", authorizeRoles("admin", "agent"), requireStudentId, async (req, res, next) => {
-  try {
-    const student = await activationService.getStudentById(req.studentId);
-    return res.json(student);
-  } catch (error) {
-    return next(error);
+router.get(
+  "/students/:id",
+  authorizeRoles("admin", "agent"),
+  requireStudentId,
+  async (req, res, next) => {
+    try {
+      const student = await activationService.getStudentById(req.studentId);
+      return res.json(student);
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
 
-router.patch("/students/:id/status", authorizeRoles("admin", "agent"), requireStudentId, async (req, res, next) => {
-  try {
-    const student = await activationService.updateStudentProgress(req.studentId, req.body?.status);
-    return res.json(student);
-  } catch (error) {
-    return next(error);
+router.patch(
+  "/students/:id/status",
+  authorizeRoles("admin", "agent"),
+  requireStudentId,
+  async (req, res, next) => {
+    try {
+      const student = await activationService.updateStudentProgress(
+        req.studentId,
+        req.body?.status
+      );
+      return res.json(student);
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
 
-router.get("/students/:id/actions", authorizeRoles("admin", "agent"), requireStudentId, async (req, res, next) => {
-  try {
-    const actions = await activationService.listStudentActions(req.studentId);
-    return res.json(actions);
-  } catch (error) {
-    return next(error);
+router.get(
+  "/students/:id/actions",
+  authorizeRoles("admin", "agent"),
+  requireStudentId,
+  async (req, res, next) => {
+    try {
+      const actions = await activationService.listStudentActions(req.studentId);
+      return res.json(actions);
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
 
-router.post("/students/:id/actions", authorizeRoles("admin", "agent"), requireStudentId, async (req, res, next) => {
-  try {
-    const action = await activationService.logAction(req.studentId, req.body?.type, req.body?.content);
-    return res.status(201).json(action);
-  } catch (error) {
-    return next(error);
+router.post(
+  "/students/:id/actions",
+  authorizeRoles("admin", "agent"),
+  requireStudentId,
+  async (req, res, next) => {
+    try {
+      const action = await activationService.logAction(
+        req.studentId,
+        req.body?.type,
+        req.body?.content
+      );
+      return res.status(201).json(action);
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
 
-router.get("/students/:id/flow", authorizeRoles("admin", "agent"), requireStudentId, async (req, res, next) => {
-  try {
-    const flow = await activationService.getStudentStatusFlow(req.studentId);
-    return res.json(flow);
-  } catch (error) {
-    return next(error);
+router.get(
+  "/students/:id/flow",
+  authorizeRoles("admin", "agent"),
+  requireStudentId,
+  async (req, res, next) => {
+    try {
+      const flow = await activationService.getStudentStatusFlow(req.studentId);
+      return res.json(flow);
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
 
-router.post("/students/:id/recovery", authorizeRoles("admin", "agent"), requireStudentId, async (req, res, next) => {
-  try {
-    const outcome = await automationService.triggerStudentRecovery({ id: req.studentId });
-    return res.json(outcome);
-  } catch (error) {
-    return next(error);
+router.post(
+  "/students/:id/recovery",
+  authorizeRoles("admin", "agent"),
+  requireStudentId,
+  async (req, res, next) => {
+    try {
+      const outcome = await automationService.triggerStudentRecovery({ id: req.studentId });
+      return res.json(outcome);
+    } catch (error) {
+      return next(error);
+    }
   }
-});
+);
 
 router.post("/at-risk/check", authorizeRoles("admin", "agent"), async (_req, res, next) => {
   try {
@@ -139,7 +182,10 @@ router.get("/dashboard/summary", authorizeRoles("admin", "agent"), async (_req, 
             }
           ]
         },
-        order: [["last_action_at", "ASC"], ["created_at", "ASC"]]
+        order: [
+          ["last_action_at", "ASC"],
+          ["created_at", "ASC"]
+        ]
       })
     ]);
 

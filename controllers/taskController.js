@@ -1,4 +1,5 @@
 const taskService = require("../services/taskService");
+const { getPagination, sendCollection } = require("../services/pagination");
 
 const createTask = async (req, res, next) => {
   try {
@@ -17,10 +18,11 @@ const createTask = async (req, res, next) => {
   }
 };
 
-const getOpenTasks = async (_req, res, next) => {
+const getOpenTasks = async (req, res, next) => {
   try {
-    const tasks = await taskService.getOpenTasks();
-    return res.json(tasks);
+    const pagination = getPagination(req.query);
+    const { rows, count } = await taskService.getOpenTasks(pagination);
+    return sendCollection(res, rows, count, pagination);
   } catch (error) {
     return next(error);
   }

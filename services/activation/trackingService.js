@@ -13,7 +13,10 @@ const getTrackingSecret = () => {
   return "dev_tracking_secret_change_me";
 };
 
-const normalizeType = (value) => String(value || "").trim().toLowerCase();
+const normalizeType = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase();
 
 const getBaseUrl = () =>
   String(process.env.TRACKING_BASE_URL || "http://localhost:5000")
@@ -36,9 +39,19 @@ const base64UrlDecode = (value) => Buffer.from(value, "base64url").toString("utf
 const sign = (payloadPart) =>
   crypto.createHmac("sha256", getTrackingSecret()).update(payloadPart).digest("base64url");
 
-const buildPayload = (studentId, type) => ({
+const getTokenTtlSeconds = () => {
+  const ttl = Number(process.env.TRACKING_TOKEN_TTL_SECONDS || 30 * 24 * 60 * 60);
+  if (!Number.isInteger(ttl) || ttl <= 0) {
+    throw new AppError("Invalid tracking token TTL configuration", 500);
+  }
+  return ttl;
+};
+
+const buildPayload = (studentId, type, now = Date.now()) => ({
   studentId: Number(studentId),
-  actionType: type
+  actionType: type,
+  iat: Math.floor(now / 1000),
+  exp: Math.floor(now / 1000) + getTokenTtlSeconds()
 });
 
 const encodeToken = (payload) => {
@@ -48,21 +61,44 @@ const encodeToken = (payload) => {
 };
 
 const decodeToken = (token) => {
-  if (!token || typeof token !== "string" || !token.includes(".")) {
+  if (!token || typeof token !== "string") {
     throw new AppError("Invalid tracking token", 400);
   }
 
-  const [payloadPart, signaturePart] = token.split(".");
+  const parts = token.split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new AppError("Invalid tracking token", 400);
+  }
+  const [payloadPart, signaturePart] = parts;
   const expectedSignature = sign(payloadPart);
-
-  if (signaturePart !== expectedSignature) {
+  const actualBuffer = Buffer.from(signaturePart);
+  const expectedBuffer = Buffer.from(expectedSignature);
+  if (
+    actualBuffer.length !== expectedBuffer.length ||
+    !crypto.timingSafeEqual(actualBuffer, expectedBuffer)
+  ) {
     throw new AppError("Invalid tracking signature", 400);
   }
 
-  const payload = JSON.parse(base64UrlDecode(payloadPart));
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlDecode(payloadPart));
+  } catch (_error) {
+    throw new AppError("Invalid tracking payload", 400);
+  }
 
   if (!Number.isInteger(payload.studentId) || payload.studentId <= 0) {
     throw new AppError("Invalid tracking payload", 400);
+  }
+  if (
+    !Number.isInteger(payload.iat) ||
+    !Number.isInteger(payload.exp) ||
+    payload.exp <= payload.iat
+  ) {
+    throw new AppError("Invalid tracking token lifetime", 400);
+  }
+  if (payload.exp <= Math.floor(Date.now() / 1000)) {
+    throw new AppError("Tracking token expired", 410);
   }
 
   const actionType = normalizeType(payload.actionType);
@@ -72,7 +108,8 @@ const decodeToken = (token) => {
 
   return {
     studentId: payload.studentId,
-    actionType
+    actionType,
+    expiresAt: new Date(payload.exp * 1000)
   };
 };
 

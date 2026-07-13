@@ -91,10 +91,16 @@ const detectDelimiter = (line) => {
     .sort((a, b) => b.count - a.count)[0].delimiter;
 };
 
-const normalizeHeader = (value) => normalize(value).toLowerCase().replace(/[^a-z0-9_-]/g, "");
+const normalizeHeader = (value) =>
+  normalize(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "");
 
 const parseCsvContacts = (csvText) => {
-  const lines = normalize(csvText).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = normalize(csvText)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   if (lines.length === 0) {
     return [];
   }
@@ -105,7 +111,9 @@ const parseCsvContacts = (csvText) => {
     name: headers.findIndex((header) => ["name", "nom"].includes(header)),
     phone: headers.findIndex((header) => ["phone", "telephone"].includes(header)),
     email: headers.findIndex((header) => header === "email"),
-    problem_reason: headers.findIndex((header) => ["problem_reason", "problem", "probleme", "raison"].includes(header)),
+    problem_reason: headers.findIndex((header) =>
+      ["problem_reason", "problem", "probleme", "raison"].includes(header)
+    ),
     notes: headers.findIndex((header) => ["notes", "note"].includes(header))
   };
   const hasHeader = indexes.name >= 0 || indexes.phone >= 0;
@@ -131,22 +139,29 @@ const serializeGroup = async (group) => {
     order: [["created_at", "DESC"]]
   });
 
-  const serializedMembers = await Promise.all(members.map(async (member) => {
-    const contact = member.contact_type === "lead"
-      ? await Lead.findByPk(member.contact_id, { attributes: ["id", "name", "phone", "email", "status"] })
-      : await Student.findByPk(member.contact_id, { attributes: ["id", "name", "phone", "status"] });
-    return {
-      id: member.id,
-      group_id: member.group_id,
-      contact_type: member.contact_type,
-      contact_id: member.contact_id,
-      problem_reason: member.problem_reason,
-      notes: member.notes,
-      created_at: member.created_at,
-      updated_at: member.updated_at,
-      contact
-    };
-  }));
+  const serializedMembers = await Promise.all(
+    members.map(async (member) => {
+      const contact =
+        member.contact_type === "lead"
+          ? await Lead.findByPk(member.contact_id, {
+              attributes: ["id", "name", "phone", "email", "status"]
+            })
+          : await Student.findByPk(member.contact_id, {
+              attributes: ["id", "name", "phone", "status"]
+            });
+      return {
+        id: member.id,
+        group_id: member.group_id,
+        contact_type: member.contact_type,
+        contact_id: member.contact_id,
+        problem_reason: member.problem_reason,
+        notes: member.notes,
+        created_at: member.created_at,
+        updated_at: member.updated_at,
+        contact
+      };
+    })
+  );
 
   return {
     ...group.toJSON(),
@@ -154,10 +169,16 @@ const serializeGroup = async (group) => {
   };
 };
 
-const listGroups = async () => {
-  const groups = await ContactGroup.findAll({ order: [["created_at", "DESC"]] });
+const listGroups = async ({ limit, offset } = {}) => {
+  const { rows: groups, count } = await ContactGroup.findAndCountAll({
+    order: [["created_at", "DESC"]],
+    limit,
+    offset
+  });
+  const groupIds = groups.map((group) => group.id);
   const counts = await ContactGroupMember.findAll({
     attributes: ["group_id", [sequelize.fn("COUNT", sequelize.col("id")), "total"]],
+    where: { group_id: { [Op.in]: groupIds.length ? groupIds : [0] } },
     group: ["group_id"],
     raw: true
   });
@@ -166,13 +187,22 @@ const listGroups = async () => {
     return acc;
   }, {});
 
-  return groups.map((group) => ({
-    ...group.toJSON(),
-    members_count: countsByGroup[group.id] || 0
-  }));
+  return {
+    count,
+    rows: groups.map((group) => ({
+      ...group.toJSON(),
+      members_count: countsByGroup[group.id] || 0
+    }))
+  };
 };
 
-const createGroup = ({ name, description = "", category = "", isActive = true, createdBy = null }) => {
+const createGroup = ({
+  name,
+  description = "",
+  category = "",
+  isActive = true,
+  createdBy = null
+}) => {
   const groupName = normalize(name);
   if (!groupName) {
     throw createError("name is required", 400);
@@ -348,9 +378,10 @@ const getRecipients = async (group) => {
 
   const recipients = [];
   for (const member of members) {
-    const contact = member.contact_type === "lead"
-      ? await Lead.findByPk(member.contact_id)
-      : await Student.findByPk(member.contact_id);
+    const contact =
+      member.contact_type === "lead"
+        ? await Lead.findByPk(member.contact_id)
+        : await Student.findByPk(member.contact_id);
     if (contact) {
       recipients.push({
         member_id: member.id,
@@ -369,7 +400,9 @@ const getRecipients = async (group) => {
 const previewToken = ({ groupId, userId, messageTemplate }) => {
   return crypto
     .createHash("sha256")
-    .update(`${groupId}:${userId || "anon"}:${messageTemplate}:${Date.now()}:${crypto.randomBytes(8).toString("hex")}`)
+    .update(
+      `${groupId}:${userId || "anon"}:${messageTemplate}:${Date.now()}:${crypto.randomBytes(8).toString("hex")}`
+    )
     .digest("hex");
 };
 
@@ -382,7 +415,11 @@ const validatePreview = ({ previewToken: token, groupId, userId, messageTemplate
     dryRunPreviews.delete(token);
     return false;
   }
-  return preview.group_id === groupId && preview.user_id === (userId || null) && preview.message_template === messageTemplate;
+  return (
+    preview.group_id === groupId &&
+    preview.user_id === (userId || null) &&
+    preview.message_template === messageTemplate
+  );
 };
 
 const checkStudentCooldown = async ({ studentId, message, now }) => {
@@ -430,7 +467,14 @@ const logStudentAttempt = async ({ student, message, status, detail = "" }) => {
   await student.save();
 };
 
-const sendMessage = async ({ groupId, messageTemplate, dryRun = true, userId = null, token = null, req = null }) => {
+const sendMessage = async ({
+  groupId,
+  messageTemplate,
+  dryRun = true,
+  userId = null,
+  token = null,
+  req = null
+}) => {
   const group = await ensureGroup(groupId);
   const template = normalize(messageTemplate);
   if (!template) {
@@ -464,7 +508,9 @@ const sendMessage = async ({ groupId, messageTemplate, dryRun = true, userId = n
     };
   }
 
-  if (!validatePreview({ previewToken: token, groupId: group.id, userId, messageTemplate: template })) {
+  if (
+    !validatePreview({ previewToken: token, groupId: group.id, userId, messageTemplate: template })
+  ) {
     throw createError("dry_run is required before sending this group message", 409);
   }
 
@@ -479,9 +525,10 @@ const sendMessage = async ({ groupId, messageTemplate, dryRun = true, userId = n
 
   for (const item of rendered) {
     const recipient = recipients.find((row) => row.member_id === item.member_id);
-    const isCooldown = item.contact_type === "student"
-      ? await checkStudentCooldown({ studentId: item.contact_id, message: item.message, now })
-      : await checkLeadCooldown({ leadId: item.contact_id, message: item.message, now });
+    const isCooldown =
+      item.contact_type === "student"
+        ? await checkStudentCooldown({ studentId: item.contact_id, message: item.message, now })
+        : await checkLeadCooldown({ leadId: item.contact_id, message: item.message, now });
 
     if (isCooldown) {
       summary.skipped_cooldown += 1;
@@ -490,12 +537,14 @@ const sendMessage = async ({ groupId, messageTemplate, dryRun = true, userId = n
     }
 
     try {
-      const sendResult = process.env.NODE_ENV === "test"
-        ? { success: true, statusCode: 200, mock: true }
-        : item.contact_type === "student"
-          ? await studentWhatsappService.sendMessage(item.phone, item.message)
-          : await leadWhatsappService.sendWhatsAppMessage(item.phone, item.name, item.message);
-      const success = item.contact_type === "lead" ? Boolean(sendResult) : Boolean(sendResult?.success);
+      const sendResult =
+        process.env.NODE_ENV === "test"
+          ? { success: true, statusCode: 200, mock: true }
+          : item.contact_type === "student"
+            ? await studentWhatsappService.sendMessage(item.phone, item.message)
+            : await leadWhatsappService.sendWhatsAppMessage(item.phone, item.name, item.message);
+      const success =
+        item.contact_type === "lead" ? Boolean(sendResult) : Boolean(sendResult?.success);
 
       if (item.contact_type === "student") {
         await logStudentAttempt({
@@ -505,7 +554,11 @@ const sendMessage = async ({ groupId, messageTemplate, dryRun = true, userId = n
           detail: `status=${sendResult?.statusCode || "n/a"}`
         });
       } else {
-        await logLeadAttempt({ leadId: item.contact_id, message: item.message, status: success ? "sent" : "failed" });
+        await logLeadAttempt({
+          leadId: item.contact_id,
+          message: item.message,
+          status: success ? "sent" : "failed"
+        });
       }
 
       if (success) {
@@ -518,7 +571,12 @@ const sendMessage = async ({ groupId, messageTemplate, dryRun = true, userId = n
       summary.errors += 1;
       summary.results.push({ ...item, status: "error", error: error.message });
       if (item.contact_type === "student") {
-        await logStudentAttempt({ student: recipient.raw, message: item.message, status: "failed", detail: error.message });
+        await logStudentAttempt({
+          student: recipient.raw,
+          message: item.message,
+          status: "failed",
+          detail: error.message
+        });
       } else {
         await logLeadAttempt({ leadId: item.contact_id, message: item.message, status: "failed" });
       }

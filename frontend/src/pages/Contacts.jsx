@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../lib/api";
+import api, { collectionData } from "../lib/api";
 import { clearToken } from "../lib/auth";
 
 const emptyForm = {
@@ -148,16 +148,20 @@ const Contacts = () => {
   const [success, setSuccess] = useState("");
   const [query, setQuery] = useState("");
 
-  const handleUnauthorized = () => {
+  const handleUnauthorized = useCallback(() => {
     clearToken();
     navigate("/login", { replace: true });
-  };
+  }, [navigate]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setError("");
-    const [meRes, leadsRes, tagsRes] = await Promise.all([api.get("/auth/me"), api.get("/leads"), api.get("/tags")]);
+    const [meRes, leadsRes, tagsRes] = await Promise.all([
+      api.get("/auth/me"),
+      api.get("/leads", { params: { page: 1, limit: 250 } }),
+      api.get("/tags")
+    ]);
     setMe(meRes.data);
-    const leadRows = Array.isArray(leadsRes.data) ? leadsRes.data : [];
+    const leadRows = collectionData(leadsRes.data);
     setLeads(leadRows);
     setTags(Array.isArray(tagsRes.data) ? tagsRes.data : []);
     const tagPairs = await Promise.all(
@@ -171,7 +175,7 @@ const Contacts = () => {
       })
     );
     setLeadTags(Object.fromEntries(tagPairs));
-  };
+  }, []);
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -190,7 +194,7 @@ const Contacts = () => {
     };
 
     bootstrap();
-  }, []);
+  }, [handleUnauthorized, loadData]);
 
   const filteredLeads = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -256,7 +260,9 @@ const Contacts = () => {
     await loadData();
     setSubmitting(false);
     setImportText("");
-    setSuccess(`${created} contact(s) importe(s).${failed.length ? ` Echecs: ${failed.join(", ")}` : ""}`);
+    setSuccess(
+      `${created} contact(s) importe(s).${failed.length ? ` Echecs: ${failed.join(", ")}` : ""}`
+    );
   };
 
   const importFile = async (event) => {
@@ -386,60 +392,141 @@ const Contacts = () => {
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Contacts</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              Contacts
+            </h1>
             <p className="mt-1 text-sm text-slate-500">Import, suivi et relance des leads CRM.</p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/dashboard")}>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/dashboard")}
+            >
               Dashboard
             </button>
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/followups")}>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/followups")}
+            >
               Relances
             </button>
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/groups")}>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/groups")}
+            >
               Groupes
             </button>
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/activation")}>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/activation")}
+            >
               Activation
             </button>
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/support")}>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/support")}
+            >
               Support
             </button>
           </div>
         </div>
 
-        {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-        {success && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div>}
+        {error && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {success}
+          </div>
+        )}
 
-        <form className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" onSubmit={createTag}>
+        <form
+          className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+          onSubmit={createTag}
+        >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <label className="flex-1 text-sm font-medium text-slate-600">
               Nouveau tag
-              <input className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500" placeholder="Ex: prospects interesses" value={tagForm} onChange={(event) => setTagForm(event.target.value)} />
+              <input
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+                placeholder="Ex: prospects interesses"
+                value={tagForm}
+                onChange={(event) => setTagForm(event.target.value)}
+              />
             </label>
-            <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting || !tagForm.trim()}>Creer tag</button>
+            <button
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+              disabled={submitting || !tagForm.trim()}
+            >
+              Creer tag
+            </button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            {tags.length === 0 ? <span className="text-sm text-slate-500">Aucun tag.</span> : tags.map((tag) => (
-              <span key={tag.id} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">{tag.name}</span>
-            ))}
+            {tags.length === 0 ? (
+              <span className="text-sm text-slate-500">Aucun tag.</span>
+            ) : (
+              tags.map((tag) => (
+                <span
+                  key={tag.id}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600"
+                >
+                  {tag.name}
+                </span>
+              ))
+            )}
           </div>
         </form>
 
         <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <form className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" onSubmit={submitOne}>
+          <form
+            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+            onSubmit={submitOne}
+          >
             <h2 className="text-lg font-semibold text-slate-900">Ajouter un contact</h2>
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <input className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500" placeholder="Nom complet" value={form.name} onChange={onChange("name")} required />
-              <input className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500" placeholder="Telephone" value={form.phone} onChange={onChange("phone")} required />
-              <input className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500" type="email" placeholder="Email" value={form.email} onChange={onChange("email")} />
-              <input className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500" placeholder="Source" value={form.source} onChange={onChange("source")} />
-              <select className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500" value={form.gender} onChange={onChange("gender")}>
+              <input
+                className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+                placeholder="Nom complet"
+                value={form.name}
+                onChange={onChange("name")}
+                required
+              />
+              <input
+                className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+                placeholder="Telephone"
+                value={form.phone}
+                onChange={onChange("phone")}
+                required
+              />
+              <input
+                className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+                type="email"
+                placeholder="Email"
+                value={form.email}
+                onChange={onChange("email")}
+              />
+              <input
+                className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+                placeholder="Source"
+                value={form.source}
+                onChange={onChange("source")}
+              />
+              <select
+                className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+                value={form.gender}
+                onChange={onChange("gender")}
+              >
                 <option value="unknown">Genre inconnu</option>
                 <option value="female">Femme</option>
                 <option value="male">Homme</option>
               </select>
-              <button className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting} type="submit">
+              <button
+                className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                disabled={submitting}
+                type="submit"
+              >
                 Creer
               </button>
             </div>
@@ -455,18 +542,27 @@ const Contacts = () => {
                 onChange={importFile}
               />
               <p className="mt-2 text-xs text-slate-500">
-                Formats acceptes: CSV, TSV, TXT, JSON. Colonnes reconnues: name/nom, phone/telephone, email.
+                Formats acceptes: CSV, TSV, TXT, JSON. Colonnes reconnues: name/nom,
+                phone/telephone, email.
               </p>
             </div>
             <textarea
               className="mt-4 min-h-32 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500"
-              placeholder={"CSV avec ou sans en-tete:\nnom,telephone,email\nMarie Noel,+50912345678,marie@email.com"}
+              placeholder={
+                "CSV avec ou sans en-tete:\nnom,telephone,email\nMarie Noel,+50912345678,marie@email.com"
+              }
               value={importText}
               onChange={(event) => setImportText(event.target.value)}
             />
             <div className="mt-3 flex items-center justify-between gap-3">
-              <p className="text-sm text-slate-500">{parseContacts(importText).length} ligne(s) valide(s)</p>
-              <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting} onClick={importContacts}>
+              <p className="text-sm text-slate-500">
+                {parseContacts(importText).length} ligne(s) valide(s)
+              </p>
+              <button
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                disabled={submitting}
+                onClick={importContacts}
+              >
                 Importer
               </button>
             </div>
@@ -500,7 +596,9 @@ const Contacts = () => {
               <tbody className="divide-y divide-slate-100">
                 {filteredLeads.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-6 text-center text-slate-500" colSpan="7">Aucun contact.</td>
+                    <td className="px-4 py-6 text-center text-slate-500" colSpan="7">
+                      Aucun contact.
+                    </td>
                   </tr>
                 ) : (
                   filteredLeads.map((lead) => (
@@ -515,36 +613,73 @@ const Contacts = () => {
                       <td className="px-4 py-3">
                         <div className="flex max-w-xs flex-wrap gap-1">
                           {(leadTags[lead.id] || []).map((tag) => (
-                            <button key={tag.id} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600 hover:bg-red-50 hover:text-red-700" onClick={() => removeTag(lead, tag)}>
+                            <button
+                              key={tag.id}
+                              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600 hover:bg-red-50 hover:text-red-700"
+                              onClick={() => removeTag(lead, tag)}
+                            >
                               {tag.name}
                             </button>
                           ))}
                         </div>
                         <div className="mt-2 flex gap-1">
-                          <select className="max-w-36 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs" value={tagSelection[lead.id] || ""} onChange={(event) => setTagSelection((prev) => ({ ...prev, [lead.id]: event.target.value }))}>
+                          <select
+                            className="max-w-36 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                            value={tagSelection[lead.id] || ""}
+                            onChange={(event) =>
+                              setTagSelection((prev) => ({
+                                ...prev,
+                                [lead.id]: event.target.value
+                              }))
+                            }
+                          >
                             <option value="">Tag</option>
-                            {tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
+                            {tags.map((tag) => (
+                              <option key={tag.id} value={tag.id}>
+                                {tag.name}
+                              </option>
+                            ))}
                           </select>
-                          <button className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100" onClick={() => addTag(lead)}>Ajouter</button>
+                          <button
+                            className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                            onClick={() => addTag(lead)}
+                          >
+                            Ajouter
+                          </button>
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <select className="rounded-lg border border-slate-300 bg-white px-2 py-1" value={lead.status} onChange={(event) => updateStatus(lead, event.target.value)}>
+                        <select
+                          className="rounded-lg border border-slate-300 bg-white px-2 py-1"
+                          value={lead.status}
+                          onChange={(event) => updateStatus(lead, event.target.value)}
+                        >
                           {Object.entries(statusLabels).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
                           ))}
                         </select>
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-2">
-                          <button className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate(`/followups?lead=${lead.id}`)}>
+                          <button
+                            className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                            onClick={() => navigate(`/followups?lead=${lead.id}`)}
+                          >
                             Relance
                           </button>
-                          <button className="rounded-lg border border-amber-300 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50" onClick={() => cancelSequence(lead)}>
+                          <button
+                            className="rounded-lg border border-amber-300 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50"
+                            onClick={() => cancelSequence(lead)}
+                          >
                             Stop sequence
                           </button>
                           {me?.role === "admin" && (
-                            <button className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50" onClick={() => deleteLead(lead)}>
+                            <button
+                              className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                              onClick={() => deleteLead(lead)}
+                            >
                               Supprimer
                             </button>
                           )}

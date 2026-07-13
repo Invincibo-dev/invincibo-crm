@@ -5,7 +5,10 @@ const withStudentLock = (studentKey, task) => {
   const key = SERIALIZE_ALL_WRITES ? "__sqlite_global_write_lock__" : String(studentKey);
   const previous = queues.get(key) || Promise.resolve();
 
-  const run = previous.then(() => task(), () => task());
+  const run = previous.then(
+    () => task(),
+    () => task()
+  );
   const nextQueue = run.catch(() => undefined);
 
   queues.set(

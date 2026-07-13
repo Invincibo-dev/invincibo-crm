@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../lib/api";
+import api, { collectionData } from "../lib/api";
 import { clearToken } from "../lib/auth";
 
 const emptyGroupForm = { name: "", description: "", category: "" };
@@ -28,14 +28,14 @@ const Groups = () => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const handleUnauthorized = () => {
+  const handleUnauthorized = useCallback(() => {
     clearToken();
     navigate("/login", { replace: true });
-  };
+  }, [navigate]);
 
   const loadGroups = async () => {
-    const response = await api.get("/groups");
-    setGroups(Array.isArray(response.data) ? response.data : []);
+    const response = await api.get("/groups", { params: { page: 1, limit: 250 } });
+    setGroups(collectionData(response.data));
   };
 
   const loadGroup = async (id) => {
@@ -44,16 +44,16 @@ const Groups = () => {
     setSelectedGroup(response.data);
   };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const [groupsRes, leadsRes, studentsRes] = await Promise.all([
-      api.get("/groups"),
-      api.get("/leads"),
-      api.get("/activation/students")
+      api.get("/groups", { params: { page: 1, limit: 250 } }),
+      api.get("/leads", { params: { page: 1, limit: 250 } }),
+      api.get("/activation/students", { params: { page: 1, limit: 250 } })
     ]);
-    setGroups(Array.isArray(groupsRes.data) ? groupsRes.data : []);
-    setLeads(Array.isArray(leadsRes.data) ? leadsRes.data : []);
-    setStudents(Array.isArray(studentsRes.data) ? studentsRes.data : []);
-  };
+    setGroups(collectionData(groupsRes.data));
+    setLeads(collectionData(leadsRes.data));
+    setStudents(collectionData(studentsRes.data));
+  }, []);
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -72,7 +72,7 @@ const Groups = () => {
       }
     };
     bootstrap();
-  }, []);
+  }, [handleUnauthorized, loadData]);
 
   const contactsForType = useMemo(() => {
     return memberForm.contact_type === "lead" ? leads : students;
@@ -163,7 +163,9 @@ const Groups = () => {
       const response = await api.post(`/groups/${selectedGroup.id}/import-csv`, { csv: csvText });
       setImportSummary(response.data);
       setCsvText("");
-      setSuccess(`Import termine: ${response.data.added_to_group} ajoute(s), ${response.data.duplicates_ignored} doublon(s), ${response.data.invalid} invalide(s).`);
+      setSuccess(
+        `Import termine: ${response.data.added_to_group} ajoute(s), ${response.data.duplicates_ignored} doublon(s), ${response.data.invalid} invalide(s).`
+      );
       await loadData();
       await loadGroup(selectedGroup.id);
     } catch (err) {
@@ -264,7 +266,8 @@ const Groups = () => {
   };
 
   const previewRecipients = Array.isArray(preview?.recipients) ? preview.recipients : [];
-  const previewStillMatches = preview && previewRecipients.length >= 0 && preview.total_targets >= 0;
+  const previewStillMatches =
+    preview && previewRecipients.length >= 0 && preview.total_targets >= 0;
 
   if (loading) {
     return (
@@ -281,28 +284,90 @@ const Groups = () => {
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Groupes</h1>
-            <p className="mt-1 text-sm text-slate-500">Segments internes pour relances controlees.</p>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              Groupes
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Segments internes pour relances controlees.
+            </p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/dashboard")}>Dashboard</button>
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/contacts")}>Contacts</button>
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/followups")}>Relances</button>
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/activation")}>Activation</button>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/dashboard")}
+            >
+              Dashboard
+            </button>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/contacts")}
+            >
+              Contacts
+            </button>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/followups")}
+            >
+              Relances
+            </button>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/activation")}
+            >
+              Activation
+            </button>
           </div>
         </div>
 
-        {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-        {success && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div>}
+        {error && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {success}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <div className="space-y-4">
-            <form className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" onSubmit={createGroup}>
+            <form
+              className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              onSubmit={createGroup}
+            >
               <h2 className="text-lg font-semibold text-slate-900">Creer groupe</h2>
-              <input className="mt-4 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500" placeholder="Nom du groupe" value={groupForm.name} onChange={(event) => setGroupForm((prev) => ({ ...prev, name: event.target.value }))} required />
-              <input className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500" placeholder="Categorie" value={groupForm.category} onChange={(event) => setGroupForm((prev) => ({ ...prev, category: event.target.value }))} />
-              <textarea className="mt-3 min-h-24 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500" placeholder="Fonction / description" value={groupForm.description} onChange={(event) => setGroupForm((prev) => ({ ...prev, description: event.target.value }))} />
-              <button className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting}>Creer</button>
+              <input
+                className="mt-4 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+                placeholder="Nom du groupe"
+                value={groupForm.name}
+                onChange={(event) =>
+                  setGroupForm((prev) => ({ ...prev, name: event.target.value }))
+                }
+                required
+              />
+              <input
+                className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+                placeholder="Categorie"
+                value={groupForm.category}
+                onChange={(event) =>
+                  setGroupForm((prev) => ({ ...prev, category: event.target.value }))
+                }
+              />
+              <textarea
+                className="mt-3 min-h-24 w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+                placeholder="Fonction / description"
+                value={groupForm.description}
+                onChange={(event) =>
+                  setGroupForm((prev) => ({ ...prev, description: event.target.value }))
+                }
+              />
+              <button
+                className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                disabled={submitting}
+              >
+                Creer
+              </button>
             </form>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -312,9 +377,15 @@ const Groups = () => {
                   <p className="text-sm text-slate-500">Aucun groupe.</p>
                 ) : (
                   groups.map((group) => (
-                    <button key={group.id} className={`w-full rounded-xl border px-3 py-2 text-left text-sm hover:bg-slate-50 ${selectedGroup?.id === group.id ? "border-slate-900" : "border-slate-200"}`} onClick={() => openGroup(group)}>
+                    <button
+                      key={group.id}
+                      className={`w-full rounded-xl border px-3 py-2 text-left text-sm hover:bg-slate-50 ${selectedGroup?.id === group.id ? "border-slate-900" : "border-slate-200"}`}
+                      onClick={() => openGroup(group)}
+                    >
                       <span className="block font-semibold text-slate-900">{group.name}</span>
-                      <span className="text-xs text-slate-500">{group.members_count || 0} membre(s)</span>
+                      <span className="text-xs text-slate-500">
+                        {group.members_count || 0} membre(s)
+                      </span>
                     </button>
                   ))
                 )}
@@ -324,44 +395,111 @@ const Groups = () => {
 
           <div className="xl:col-span-2">
             {!selectedGroup ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">Selectionne un groupe.</div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
+                Selectionne un groupe.
+              </div>
             ) : (
               <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <h2 className="text-xl font-semibold text-slate-900">{selectedGroup.name}</h2>
-                  <p className="mt-1 text-sm font-medium text-slate-600">{selectedGroup.category || "Sans categorie"}</p>
-                  <p className="mt-1 text-sm text-slate-500">{selectedGroup.description || "Aucune description."}</p>
+                  <p className="mt-1 text-sm font-medium text-slate-600">
+                    {selectedGroup.category || "Sans categorie"}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {selectedGroup.description || "Aucune description."}
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                  <form className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" onSubmit={addMember}>
+                  <form
+                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                    onSubmit={addMember}
+                  >
                     <h3 className="font-semibold text-slate-900">Ajouter contact existant</h3>
-                    <select className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2" value={memberForm.contact_type} onChange={(event) => setMemberForm({ contact_type: event.target.value, contact_id: "" })}>
+                    <select
+                      className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2"
+                      value={memberForm.contact_type}
+                      onChange={(event) =>
+                        setMemberForm({ contact_type: event.target.value, contact_id: "" })
+                      }
+                    >
                       <option value="lead">Lead</option>
                       <option value="student">Eleve</option>
                     </select>
-                    <select className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2" value={memberForm.contact_id} onChange={(event) => setMemberForm((prev) => ({ ...prev, contact_id: event.target.value }))} required>
+                    <select
+                      className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2"
+                      value={memberForm.contact_id}
+                      onChange={(event) =>
+                        setMemberForm((prev) => ({ ...prev, contact_id: event.target.value }))
+                      }
+                      required
+                    >
                       <option value="">Choisir</option>
                       {contactsForType.map((contact) => (
-                        <option key={contact.id} value={contact.id}>{contact.name} - {contact.phone}</option>
+                        <option key={contact.id} value={contact.id}>
+                          {contact.name} - {contact.phone}
+                        </option>
                       ))}
                     </select>
-                    <input className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Probleme / raison" value={memberDetails.problem_reason} onChange={(event) => setMemberDetails((prev) => ({ ...prev, problem_reason: event.target.value }))} />
-                    <textarea className="mt-3 min-h-20 w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Notes" value={memberDetails.notes} onChange={(event) => setMemberDetails((prev) => ({ ...prev, notes: event.target.value }))} />
-                    <button className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting}>Ajouter</button>
+                    <input
+                      className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2"
+                      placeholder="Probleme / raison"
+                      value={memberDetails.problem_reason}
+                      onChange={(event) =>
+                        setMemberDetails((prev) => ({
+                          ...prev,
+                          problem_reason: event.target.value
+                        }))
+                      }
+                    />
+                    <textarea
+                      className="mt-3 min-h-20 w-full rounded-xl border border-slate-300 px-3 py-2"
+                      placeholder="Notes"
+                      value={memberDetails.notes}
+                      onChange={(event) =>
+                        setMemberDetails((prev) => ({ ...prev, notes: event.target.value }))
+                      }
+                    />
+                    <button
+                      className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                      disabled={submitting}
+                    >
+                      Ajouter
+                    </button>
                   </form>
 
                   <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                     <h3 className="font-semibold text-slate-900">Importer CSV</h3>
-                    <input className="mt-3 block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain,text/tab-separated-values" onChange={importCsvFile} />
-                    <textarea className="mt-3 min-h-28 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" placeholder={"name,phone,email,problem_reason,notes\nMarie Noel,+50912345678,marie@email.com,Client non paye,A rappeler"} value={csvText} onChange={(event) => {
-                      setCsvText(event.target.value);
-                      setImportSummary(null);
-                    }} />
-                    <button className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting} onClick={importCsv}>Importer dans le groupe</button>
+                    <input
+                      className="mt-3 block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+                      type="file"
+                      accept=".csv,.tsv,.txt,text/csv,text/plain,text/tab-separated-values"
+                      onChange={importCsvFile}
+                    />
+                    <textarea
+                      className="mt-3 min-h-28 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                      placeholder={
+                        "name,phone,email,problem_reason,notes\nMarie Noel,+50912345678,marie@email.com,Client non paye,A rappeler"
+                      }
+                      value={csvText}
+                      onChange={(event) => {
+                        setCsvText(event.target.value);
+                        setImportSummary(null);
+                      }}
+                    />
+                    <button
+                      className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                      disabled={submitting}
+                      onClick={importCsv}
+                    >
+                      Importer dans le groupe
+                    </button>
                     {importSummary && (
                       <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                        Total: {importSummary.total_rows} - Crees: {importSummary.created} - Existants: {importSummary.existing} - Ajoutes: {importSummary.added_to_group} - Doublons: {importSummary.duplicates_ignored} - Invalides: {importSummary.invalid}
+                        Total: {importSummary.total_rows} - Crees: {importSummary.created} -
+                        Existants: {importSummary.existing} - Ajoutes:{" "}
+                        {importSummary.added_to_group} - Doublons:{" "}
+                        {importSummary.duplicates_ignored} - Invalides: {importSummary.invalid}
                       </div>
                     )}
                   </div>
@@ -385,21 +523,45 @@ const Groups = () => {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {(selectedGroup.members || []).length === 0 ? (
-                          <tr><td className="px-3 py-6 text-center text-slate-500" colSpan="8">Aucun membre.</td></tr>
+                          <tr>
+                            <td className="px-3 py-6 text-center text-slate-500" colSpan="8">
+                              Aucun membre.
+                            </td>
+                          </tr>
                         ) : (
                           selectedGroup.members.map((member) => (
                             <tr key={member.id} className="align-top">
-                              <td className="px-3 py-2 font-medium text-slate-900">{member.contact?.name || "Contact supprime"}</td>
-                              <td className="px-3 py-2 text-slate-600">{member.contact?.phone || "-"}</td>
-                              <td className="px-3 py-2 text-slate-600">{member.contact?.email || "-"}</td>
+                              <td className="px-3 py-2 font-medium text-slate-900">
+                                {member.contact?.name || "Contact supprime"}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600">
+                                {member.contact?.phone || "-"}
+                              </td>
+                              <td className="px-3 py-2 text-slate-600">
+                                {member.contact?.email || "-"}
+                              </td>
                               <td className="px-3 py-2 text-slate-600">{member.contact_type}</td>
-                              <td className="px-3 py-2 text-slate-600">{member.problem_reason || "-"}</td>
+                              <td className="px-3 py-2 text-slate-600">
+                                {member.problem_reason || "-"}
+                              </td>
                               <td className="px-3 py-2 text-slate-600">{member.notes || "-"}</td>
-                              <td className="px-3 py-2 text-slate-600">{new Date(member.created_at).toLocaleDateString("fr-FR")}</td>
+                              <td className="px-3 py-2 text-slate-600">
+                                {new Date(member.created_at).toLocaleDateString("fr-FR")}
+                              </td>
                               <td className="px-3 py-2">
                                 <div className="flex flex-wrap gap-2">
-                                  <button className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100" onClick={() => startEditMember(member)}>Modifier</button>
-                                  <button className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50" onClick={() => removeMember(member)}>Retirer</button>
+                                  <button
+                                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                    onClick={() => startEditMember(member)}
+                                  >
+                                    Modifier
+                                  </button>
+                                  <button
+                                    className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                                    onClick={() => removeMember(member)}
+                                  >
+                                    Retirer
+                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -411,11 +573,39 @@ const Groups = () => {
                   {editingMember && (
                     <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
                       <h4 className="font-semibold text-slate-900">Modifier probleme / notes</h4>
-                      <input className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Probleme / raison" value={editingMember.problem_reason} onChange={(event) => setEditingMember((prev) => ({ ...prev, problem_reason: event.target.value }))} />
-                      <textarea className="mt-3 min-h-20 w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Notes" value={editingMember.notes} onChange={(event) => setEditingMember((prev) => ({ ...prev, notes: event.target.value }))} />
+                      <input
+                        className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2"
+                        placeholder="Probleme / raison"
+                        value={editingMember.problem_reason}
+                        onChange={(event) =>
+                          setEditingMember((prev) => ({
+                            ...prev,
+                            problem_reason: event.target.value
+                          }))
+                        }
+                      />
+                      <textarea
+                        className="mt-3 min-h-20 w-full rounded-xl border border-slate-300 px-3 py-2"
+                        placeholder="Notes"
+                        value={editingMember.notes}
+                        onChange={(event) =>
+                          setEditingMember((prev) => ({ ...prev, notes: event.target.value }))
+                        }
+                      />
                       <div className="mt-3 flex gap-2">
-                        <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting} onClick={saveMember}>Enregistrer</button>
-                        <button className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100" onClick={() => setEditingMember(null)}>Annuler</button>
+                        <button
+                          className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                          disabled={submitting}
+                          onClick={saveMember}
+                        >
+                          Enregistrer
+                        </button>
+                        <button
+                          className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          onClick={() => setEditingMember(null)}
+                        >
+                          Annuler
+                        </button>
                       </div>
                     </div>
                   )}
@@ -423,23 +613,46 @@ const Groups = () => {
 
                 <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <h3 className="font-semibold text-slate-900">Relance groupe</h3>
-                  <textarea className="mt-3 min-h-28 w-full rounded-xl border border-slate-300 px-3 py-2" value={messageForm.message_template} onChange={(event) => {
-                    setMessageForm({ message_template: event.target.value });
-                    setPreview(null);
-                  }} />
-                  <p className="mt-2 text-xs text-slate-500">Variables: {"{{name}}"}, {"{{phone}}"}, {"{{groupName}}"}. Apercu obligatoire avant envoi.</p>
+                  <textarea
+                    className="mt-3 min-h-28 w-full rounded-xl border border-slate-300 px-3 py-2"
+                    value={messageForm.message_template}
+                    onChange={(event) => {
+                      setMessageForm({ message_template: event.target.value });
+                      setPreview(null);
+                    }}
+                  />
+                  <p className="mt-2 text-xs text-slate-500">
+                    Variables: {"{{name}}"}, {"{{phone}}"}, {"{{groupName}}"}. Apercu obligatoire
+                    avant envoi.
+                  </p>
                   <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                    <button className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-60" disabled={submitting} onClick={dryRun}>Apercu / dry run</button>
-                    <button className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting || !previewStillMatches} onClick={sendMessage}>Envoyer apres apercu</button>
+                    <button
+                      className="rounded-xl border border-slate-300 bg-white px-4 py-2 font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                      disabled={submitting}
+                      onClick={dryRun}
+                    >
+                      Apercu / dry run
+                    </button>
+                    <button
+                      className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                      disabled={submitting || !previewStillMatches}
+                      onClick={sendMessage}
+                    >
+                      Envoyer apres apercu
+                    </button>
                   </div>
 
                   {preview && (
                     <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <div className="text-sm font-semibold text-slate-900">Apercu: {preview.total_targets} destinataire(s)</div>
+                      <div className="text-sm font-semibold text-slate-900">
+                        Apercu: {preview.total_targets} destinataire(s)
+                      </div>
                       <div className="mt-2 max-h-64 space-y-2 overflow-auto">
                         {previewRecipients.map((item) => (
                           <div key={item.member_id} className="rounded-lg bg-white p-2 text-sm">
-                            <div className="font-medium text-slate-800">{item.name} - {item.phone}</div>
+                            <div className="font-medium text-slate-800">
+                              {item.name} - {item.phone}
+                            </div>
                             <div className="text-slate-600">{item.message}</div>
                           </div>
                         ))}
@@ -449,7 +662,8 @@ const Groups = () => {
 
                   {sendSummary && (
                     <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                      Total: {sendSummary.total_targets} - Envoyes: {sendSummary.sent} - Cooldown: {sendSummary.skipped_cooldown} - Erreurs: {sendSummary.errors}
+                      Total: {sendSummary.total_targets} - Envoyes: {sendSummary.sent} - Cooldown:{" "}
+                      {sendSummary.skipped_cooldown} - Erreurs: {sendSummary.errors}
                     </div>
                   )}
                 </div>

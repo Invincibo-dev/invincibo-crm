@@ -13,6 +13,11 @@ const Message = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: false
     },
+    followup_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      unique: true
+    },
     message: {
       type: DataTypes.TEXT,
       allowNull: false

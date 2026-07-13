@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../lib/api";
+import api, { collectionData } from "../lib/api";
 import { clearToken } from "../lib/auth";
 
 const typeLabels = {
@@ -56,18 +56,18 @@ const Support = () => {
     type: "all"
   });
 
-  const handleUnauthorized = () => {
+  const handleUnauthorized = useCallback(() => {
     clearToken();
     navigate("/login", { replace: true });
-  };
+  }, [navigate]);
 
-  const loadTasks = async () => {
+  const loadTasks = useCallback(async () => {
     setError("");
-    const response = await api.get("/activation/tasks");
-    setTasks(Array.isArray(response.data) ? response.data : []);
-  };
+    const response = await api.get("/activation/tasks", { params: { page: 1, limit: 250 } });
+    setTasks(collectionData(response.data));
+  }, []);
 
-  const bootstrap = async () => {
+  const bootstrap = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -82,11 +82,11 @@ const Support = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [handleUnauthorized, loadTasks]);
 
   useEffect(() => {
     bootstrap();
-  }, []);
+  }, [bootstrap]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
@@ -155,8 +155,12 @@ const Support = () => {
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Support</h1>
-            <p className="mt-1 text-sm text-slate-500">Taches ouvertes pour debloquer les eleves.</p>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              Support
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Taches ouvertes pour debloquer les eleves.
+            </p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <button
@@ -260,21 +264,29 @@ const Support = () => {
         ) : (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {filteredTasks.map((task) => (
-              <div key={task.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div
+                key={task.id}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <h2 className="text-base font-semibold text-slate-900">
                       {typeLabels[task.type] || task.type}
                     </h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      {task.student?.name || "Etudiant inconnu"} - {task.student?.phone || "telephone inconnu"}
+                      {task.student?.name || "Etudiant inconnu"} -{" "}
+                      {task.student?.phone || "telephone inconnu"}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${priorityClasses[task.priority] || priorityClasses.normal}`}>
+                    <span
+                      className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${priorityClasses[task.priority] || priorityClasses.normal}`}
+                    >
                       {priorityLabels[task.priority] || task.priority}
                     </span>
-                    <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses[task.status] || statusClasses.pending}`}>
+                    <span
+                      className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClasses[task.status] || statusClasses.pending}`}
+                    >
                       {statusLabels[task.status] || task.status}
                     </span>
                   </div>
@@ -282,7 +294,8 @@ const Support = () => {
 
                 <div className="mt-4 grid gap-2 text-sm text-slate-600">
                   <p>
-                    <span className="font-medium text-slate-700">Creee:</span> {formatDate(task.created_at)}
+                    <span className="font-medium text-slate-700">Creee:</span>{" "}
+                    {formatDate(task.created_at)}
                   </p>
                   <p>
                     <span className="font-medium text-slate-700">Assignee:</span>{" "}

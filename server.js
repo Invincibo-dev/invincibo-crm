@@ -4,6 +4,7 @@ const app = require("./app");
 const { validateProductionConfig } = require("./config/production");
 const { startFollowupCron } = require("./jobs/followupCron");
 const { sequelize } = require("./models");
+const runtimeState = require("./config/runtimeState");
 
 const port = Number(process.env.PORT) || 5000;
 const nodeEnv = process.env.NODE_ENV || "development";
@@ -11,35 +12,39 @@ const dbAutoSync = process.env.DB_AUTO_SYNC === "true";
 const followupCronEnabled = process.env.FOLLOWUP_CRON_ENABLED === "true";
 
 const initializeRuntime = async () => {
-  try {
-    await sequelize.authenticate();
+  runtimeState.markNotReady();
+  await sequelize.authenticate();
 
-    if (dbAutoSync && nodeEnv !== "production") {
-      await sequelize.sync();
-    }
-
-    if (followupCronEnabled) {
-      startFollowupCron();
-      console.log("Follow-up cron enabled");
-    }
-  } catch (error) {
-    console.error("Failed to initialize runtime:", error.message);
-    process.exit(1);
+  if (dbAutoSync && nodeEnv !== "production") {
+    await sequelize.sync();
   }
+
+  if (followupCronEnabled) {
+    startFollowupCron();
+    console.log("Follow-up cron enabled");
+  }
+  runtimeState.markReady();
 };
 
-const startServer = () => {
+const startServer = async () => {
   try {
     validateProductionConfig();
-
-    app.listen(port, () => {
+    await initializeRuntime();
+    return app.listen(port, () => {
       console.log(`CRM API listening on port ${port}`);
-      initializeRuntime();
     });
   } catch (error) {
     console.error("Failed to start server:", error.message);
-    process.exit(1);
+    runtimeState.markNotReady();
+    if (require.main === module) {
+      process.exit(1);
+    }
+    throw error;
   }
 };
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { initializeRuntime, startServer };

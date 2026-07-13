@@ -1,7 +1,15 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
 
-const STATUSES = ["paid_training", "onboarding", "step1", "active", "inactive", "blocked", "at_risk"];
+const STATUSES = [
+  "paid_training",
+  "onboarding",
+  "step1",
+  "active",
+  "inactive",
+  "blocked",
+  "at_risk"
+];
 
 const Student = sequelize.define(
   "Student",

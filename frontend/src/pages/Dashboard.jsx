@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { clearToken } from "../lib/auth";
@@ -41,27 +41,30 @@ const Dashboard = () => {
   const [error, setError] = useState("");
   const [selectedTag, setSelectedTag] = useState("all");
 
-  const fetchStats = async (tag) => {
-    setLoading(true);
-    setError("");
+  const fetchStats = useCallback(
+    async (tag) => {
+      setLoading(true);
+      setError("");
 
-    try {
-      const params = tag && tag !== "all" ? { tag } : {};
-      const response = await api.get("/dashboard/stats", { params });
-      setStats(normalizeStats(response.data));
-    } catch (err) {
-      if (err.response?.status === 401) {
-        clearToken();
-        navigate("/login", { replace: true });
-        return;
+      try {
+        const params = tag && tag !== "all" ? { tag } : {};
+        const response = await api.get("/dashboard/stats", { params });
+        setStats(normalizeStats(response.data));
+      } catch (err) {
+        if (err.response?.status === 401) {
+          clearToken();
+          navigate("/login", { replace: true });
+          return;
+        }
+        setError(err.response?.data?.message || "Erreur lors du chargement du dashboard.");
+      } finally {
+        setLoading(false);
       }
-      setError(err.response?.data?.message || "Erreur lors du chargement du dashboard.");
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [navigate]
+  );
 
-  const fetchMe = async () => {
+  const fetchMe = useCallback(async () => {
     try {
       const response = await api.get("/auth/me");
       setMe(response.data);
@@ -71,15 +74,15 @@ const Dashboard = () => {
         navigate("/login", { replace: true });
       }
     }
-  };
+  }, [navigate]);
 
   useEffect(() => {
     fetchStats(selectedTag);
-  }, [selectedTag]);
+  }, [fetchStats, selectedTag]);
 
   useEffect(() => {
     fetchMe();
-  }, []);
+  }, [fetchMe]);
 
   const tagOptions = useMemo(() => {
     const names = (stats.leads_by_tag || []).map((item) => item.tag || item.name).filter(Boolean);
@@ -116,7 +119,9 @@ const Dashboard = () => {
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">CRM Dashboard</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              CRM Dashboard
+            </h1>
             <p className="mt-1 text-sm text-slate-500">Vue globale de performance commerciale</p>
           </div>
 
@@ -190,10 +195,18 @@ const Dashboard = () => {
         <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard title="Total Leads" value={stats.total_leads} color="text-sky-700" />
           <StatCard title="Clients" value={stats.total_clients} color="text-emerald-700" />
-          <StatCard title="Conversion %" value={`${Number(stats.conversion_rate || 0).toFixed(2)}%`} color="text-violet-700" />
+          <StatCard
+            title="Conversion %"
+            value={`${Number(stats.conversion_rate || 0).toFixed(2)}%`}
+            color="text-violet-700"
+          />
           <StatCard title="Leads Chauds" value={stats.hot_leads} color="text-orange-700" />
           <StatCard title="Messages Envoyes" value={stats.messages_sent} color="text-indigo-700" />
-          <StatCard title="Relances en attente" value={stats.followups_pending} color="text-rose-700" />
+          <StatCard
+            title="Relances en attente"
+            value={stats.followups_pending}
+            color="text-rose-700"
+          />
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 sm:mt-6 sm:gap-4 xl:grid-cols-2">

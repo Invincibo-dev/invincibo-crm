@@ -176,7 +176,7 @@ const createStudent = async ({ name, phone, status = "paid_training" }) => {
   return student;
 };
 
-const listStudents = async ({ status } = {}) => {
+const listStudents = async ({ status, limit, offset } = {}) => {
   const where = {};
   const normalizedStatus = normalize(status).toLowerCase();
 
@@ -184,9 +184,11 @@ const listStudents = async ({ status } = {}) => {
     where.status = normalizedStatus;
   }
 
-  return Student.findAll({
+  return Student.findAndCountAll({
     where,
-    order: [["created_at", "DESC"]]
+    order: [["created_at", "DESC"]],
+    limit,
+    offset
   });
 };
 
@@ -298,7 +300,9 @@ const updateStudentProgress = async (studentId, actionType) => {
 };
 
 const evaluateStaleness = (student, now) => {
-  const reference = student.last_action_at ? new Date(student.last_action_at) : new Date(student.created_at);
+  const reference = student.last_action_at
+    ? new Date(student.last_action_at)
+    : new Date(student.created_at);
   return now.getTime() - reference.getTime();
 };
 
@@ -428,7 +432,10 @@ const checkAtRiskStudents = async () => {
   return Student.findAll({
     attributes: ["id", "name", "phone", "status", "last_action_at", "created_at"],
     where: { status: "at_risk" },
-    order: [["last_action_at", "ASC"], ["created_at", "ASC"]]
+    order: [
+      ["last_action_at", "ASC"],
+      ["created_at", "ASC"]
+    ]
   });
 };
 

@@ -5,7 +5,8 @@ const WHATSAPP_API_BASE = "https://graph.facebook.com/v18.0";
 
 const normalizePhone = (value) => String(value || "").replace(/[^\d]/g, "");
 
-const hasConfig = () => Boolean(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
+const hasConfig = () =>
+  Boolean(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
 
 const attachTrackingLink = ({ studentId, trackingType, message }) => {
   const bodyText = String(message || "").trim();

@@ -1,9 +1,4 @@
-const PLACEHOLDER_PATTERNS = [
-  /^replace_/i,
-  /^your_/i,
-  /^<.*>$/,
-  /change_me/i
-];
+const PLACEHOLDER_PATTERNS = [/^replace_/i, /^your_/i, /^<.*>$/, /change_me/i];
 
 const isBlank = (value) => !String(value || "").trim();
 
@@ -26,12 +21,9 @@ const validateProductionConfig = () => {
 
   const missing = [];
 
-  [
-    "CORS_ORIGIN",
-    "JWT_SECRET",
-    "TRACKING_BASE_URL",
-    "TRACKING_SECRET"
-  ].forEach((name) => requireProductionValue(name, missing));
+  ["CORS_ORIGIN", "JWT_SECRET", "TRACKING_BASE_URL", "TRACKING_SECRET"].forEach((name) =>
+    requireProductionValue(name, missing)
+  );
 
   if (process.env.FOLLOWUP_CRON_ENABLED === "true") {
     ["WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID"].forEach((name) =>

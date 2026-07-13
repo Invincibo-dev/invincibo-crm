@@ -21,3 +21,6 @@ api.interceptors.request.use((config) => {
 });
 
 export default api;
+
+export const collectionData = (payload) =>
+  Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];

@@ -5,6 +5,7 @@ const { generateFollowupSequence } = require("../services/sequenceService");
 const { buildMessage } = require("../services/messageBuilder");
 const { updateLeadScore } = require("../services/scoreService");
 const { recordAudit } = require("../services/auditService");
+const { getPagination, sendCollection } = require("../services/pagination");
 const normalizeText = (value) => String(value || "").trim();
 
 const createLead = async (req, res, next) => {
@@ -21,9 +22,7 @@ const createLead = async (req, res, next) => {
     const normalizedGender = allowedGenders.includes(gender) ? gender : "unknown";
 
     if (!displayName || !phone) {
-      return res
-        .status(400)
-        .json({ message: "phone and at least one name field are required" });
+      return res.status(400).json({ message: "phone and at least one name field are required" });
     }
 
     transaction = await sequelize.transaction();
@@ -107,12 +106,15 @@ const createLead = async (req, res, next) => {
   }
 };
 
-const getLeads = async (_req, res, next) => {
+const getLeads = async (req, res, next) => {
   try {
-    const leads = await Lead.findAll({
-      order: [["created_at", "DESC"]]
+    const pagination = getPagination(req.query);
+    const { rows, count } = await Lead.findAndCountAll({
+      order: [["created_at", "DESC"]],
+      limit: pagination.limit,
+      offset: pagination.offset
     });
-    return res.json(leads);
+    return sendCollection(res, rows, count, pagination);
   } catch (error) {
     return next(error);
   }

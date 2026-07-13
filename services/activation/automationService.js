@@ -128,17 +128,32 @@ const findRecentWhatsappAttempt = async ({ studentId, actionType, now }) => {
       type: actionType,
       created_at: { [Op.gte]: minDate },
       content: {
-        [Op.or]: [{ [Op.like]: "[wa:sent]%" }, { [Op.like]: "[wa:failed]%" }, { [Op.like]: "[wa:skipped]%" }]
+        [Op.or]: [
+          { [Op.like]: "[wa:sent]%" },
+          { [Op.like]: "[wa:failed]%" },
+          { [Op.like]: "[wa:skipped]%" }
+        ]
       }
     },
     order: [["created_at", "DESC"]]
   });
 };
 
-const logRecoveryAction = async ({ studentId, situation, message, sendResult, reason = null, transaction }) => {
+const logRecoveryAction = async ({
+  studentId,
+  situation,
+  message,
+  sendResult,
+  reason = null,
+  transaction
+}) => {
   const preferredType = detectActionTypeForSituation(situation);
   const type = getRequiredActionType(preferredType);
-  const prefix = sendResult?.success ? "[wa:sent]" : reason === "cooldown_or_duplicate" ? "[wa:skipped]" : "[wa:failed]";
+  const prefix = sendResult?.success
+    ? "[wa:sent]"
+    : reason === "cooldown_or_duplicate"
+      ? "[wa:skipped]"
+      : "[wa:failed]";
   const transportStatus = sendResult
     ? ` status=${sendResult.statusCode || "n/a"} success=${Boolean(sendResult.success)}`
     : " status=n/a success=false";
@@ -210,7 +225,11 @@ const triggerStudentRecovery = async (student) => {
     let reason = null;
 
     if (skipSend) {
-      sendResult = { success: false, statusCode: 429, error: "Message skipped by cooldown/idempotency" };
+      sendResult = {
+        success: false,
+        statusCode: 429,
+        error: "Message skipped by cooldown/idempotency"
+      };
       reason = "cooldown_or_duplicate";
     } else {
       sendResult = await whatsappService.sendMessage(persistedStudent.phone, message);
@@ -248,7 +267,10 @@ const processAtRiskBatch = async () => {
 
   const students = await Student.findAll({
     where: { status: "at_risk" },
-    order: [["last_action_at", "ASC"], ["created_at", "ASC"]]
+    order: [
+      ["last_action_at", "ASC"],
+      ["created_at", "ASC"]
+    ]
   });
 
   const results = [];

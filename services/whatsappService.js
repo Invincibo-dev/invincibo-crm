@@ -9,10 +9,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isRetryableAxiosError = (error) => {
   const status = error?.response?.status;
-  if (!status) {
-    return true;
-  }
-  return status === 429 || status >= 500;
+  // A timeout/network break after writing the request is ambiguous: Meta may
+  // already have accepted it, so an automatic retry could duplicate delivery.
+  return Boolean(status && (status === 429 || status >= 500));
 };
 
 const sendWithRetry = async (requestConfig) => {
@@ -33,6 +32,9 @@ const sendWithRetry = async (requestConfig) => {
     }
   }
 
+  if (lastError && !lastError.response) {
+    lastError.deliveryAmbiguous = true;
+  }
   throw lastError;
 };
 
@@ -69,6 +71,7 @@ async function sendWhatsAppMessage(phone, name, messageText) {
 }
 
 async function processPendingFollowups() {
+  const maxAttempts = Math.max(1, Number(process.env.WHATSAPP_FOLLOWUP_MAX_ATTEMPTS || 3));
   const dueFollowups = await FollowUp.findAll({
     where: {
       status: "pending",
@@ -77,13 +80,7 @@ async function processPendingFollowups() {
         [Op.lte]: new Date()
       }
     },
-    include: [
-      {
-        model: Lead,
-        as: "lead",
-        attributes: ["id", "name", "phone", "email", "status"]
-      }
-    ],
+    attributes: ["id"],
     order: [["scheduled_date", "ASC"]]
   });
 
@@ -96,63 +93,93 @@ async function processPendingFollowups() {
   };
 
   for (const followUp of dueFollowups) {
-    const transaction = await sequelize.transaction();
-
+    let providerAccepted = false;
     try {
-      const latestFollowUp = await FollowUp.findOne({
-        where: { id: followUp.id, status: "pending", cancelled: false },
-        transaction,
-        lock: transaction.LOCK.UPDATE
-      });
-
-      if (!latestFollowUp) {
-        await transaction.rollback();
+      // Atomic claim: only one worker/process can change pending -> processing.
+      const [claimed] = await FollowUp.update(
+        {
+          status: "processing",
+          processing_started_at: new Date(),
+          attempt_count: sequelize.literal("attempt_count + 1"),
+          last_error: null
+        },
+        { where: { id: followUp.id, status: "pending", cancelled: false } }
+      );
+      if (claimed !== 1) {
         continue;
       }
 
-      const lead = await Lead.findByPk(latestFollowUp.lead_id, { transaction });
+      const latestFollowUp = await FollowUp.findByPk(followUp.id);
+      const lead = await Lead.findByPk(latestFollowUp.lead_id);
       if (!lead) {
         throw new Error("Lead not found for follow-up");
       }
 
       if (lead.status === "client" || latestFollowUp.cancelled) {
-        await transaction.rollback();
+        await latestFollowUp.update({ status: "completed", processing_started_at: null });
         summary.skipped += 1;
         continue;
       }
 
-      await sendWhatsAppMessage(lead.phone, lead.name, latestFollowUp.message);
-
-      await Message.create(
-        {
-          lead_id: lead.id,
-          message: latestFollowUp.message,
-          type: "followup",
-          status: "sent"
-        },
-        { transaction }
+      const providerResponse = await sendWhatsAppMessage(
+        lead.phone,
+        lead.name,
+        latestFollowUp.message
       );
+      providerAccepted = true;
+      const providerMessageId = providerResponse?.messages?.[0]?.id || null;
 
-      latestFollowUp.status = "completed";
-      await latestFollowUp.save({ transaction });
-
-      lead.last_contact_date = new Date();
-      await lead.save({ transaction });
-      await updateLeadScore(lead.id, { transaction });
-
-      await transaction.commit();
+      await sequelize.transaction(async (transaction) => {
+        await Message.findOrCreate({
+          where: { followup_id: latestFollowUp.id },
+          defaults: {
+            lead_id: lead.id,
+            followup_id: latestFollowUp.id,
+            message: latestFollowUp.message,
+            type: "followup",
+            status: "sent"
+          },
+          transaction
+        });
+        await FollowUp.update(
+          {
+            status: "completed",
+            processing_started_at: null,
+            sent_at: new Date(),
+            provider_message_id: providerMessageId,
+            last_error: null
+          },
+          { where: { id: latestFollowUp.id, status: "processing" }, transaction }
+        );
+        await lead.update({ last_contact_date: new Date() }, { transaction });
+        await updateLeadScore(lead.id, { transaction });
+      });
       summary.processed += 1;
       summary.sent += 1;
     } catch (error) {
-      await transaction.rollback();
+      const claimedFollowUp = await FollowUp.findByPk(followUp.id);
+      const ambiguous = providerAccepted || Boolean(error.deliveryAmbiguous);
+      const exhausted = Number(claimedFollowUp?.attempt_count || 0) >= maxAttempts;
+      // Ambiguous deliveries stay processing and require reconciliation. A
+      // confirmed rejection may be retried up to the configured attempt cap.
+      if (claimedFollowUp?.status === "processing") {
+        await claimedFollowUp.update({
+          status: ambiguous ? "processing" : exhausted ? "failed" : "pending",
+          processing_started_at: ambiguous ? claimedFollowUp.processing_started_at : null,
+          last_error: String(error.message || "WhatsApp delivery failed").slice(0, 2000)
+        });
+      }
 
-      // Keep follow-up pending on failure and record attempt for observability.
       try {
-        await Message.create({
-          lead_id: followUp.lead_id,
-          message: followUp.message,
-          type: "followup",
-          status: "failed"
+        await Message.findOrCreate({
+          where: { followup_id: claimedFollowUp.id },
+          defaults: {
+            lead_id: claimedFollowUp.lead_id,
+            followup_id: claimedFollowUp.id,
+            message: claimedFollowUp.message,
+            type: "followup",
+            status: "failed"
+          }
         });
       } catch (_logError) {
         // No-op: secondary logging failure should not break processor loop.
@@ -165,7 +192,8 @@ async function processPendingFollowups() {
         console.error(
           "[Followup Processor] Failed for follow-up",
           followUp.id,
-          error.message
+          error.message,
+          ambiguous ? "(delivery state ambiguous; automatic retry disabled)" : ""
         );
       }
     }

@@ -1,3 +1,8 @@
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  name VARCHAR(190) PRIMARY KEY,
+  applied_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(150) NOT NULL,
@@ -5,6 +10,11 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash VARCHAR(255) NOT NULL,
   role ENUM('admin', 'agent') NOT NULL DEFAULT 'agent',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS bootstrap_locks (
+  `key` VARCHAR(80) PRIMARY KEY,
+  claimed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS leads (
@@ -20,17 +30,22 @@ CREATE TABLE IF NOT EXISTS leads (
   score INT NOT NULL DEFAULT 0,
   last_contact_date DATETIME NULL,
   follow_up_date DATETIME NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_leads_created_at (created_at),
+  INDEX idx_leads_status_created_at (status, created_at),
+  INDEX idx_leads_score (score)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS messages (
   id INT AUTO_INCREMENT PRIMARY KEY,
   lead_id INT NOT NULL,
+  followup_id INT NULL UNIQUE,
   message TEXT NOT NULL,
   type ENUM('initial', 'followup') NOT NULL DEFAULT 'initial',
   status ENUM('pending', 'sent', 'failed') NOT NULL DEFAULT 'pending',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_messages_lead_id (lead_id),
+  INDEX idx_messages_status_created_at (status, created_at),
   CONSTRAINT fk_messages_lead
     FOREIGN KEY (lead_id) REFERENCES leads(id)
     ON DELETE CASCADE
@@ -44,15 +59,27 @@ CREATE TABLE IF NOT EXISTS followups (
   message TEXT NOT NULL,
   sequence_step INT NOT NULL DEFAULT 0,
   cancelled BOOLEAN NOT NULL DEFAULT FALSE,
-  status ENUM('pending', 'completed') NOT NULL DEFAULT 'pending',
+  status ENUM('pending', 'processing', 'completed', 'failed') NOT NULL DEFAULT 'pending',
+  attempt_count INT NOT NULL DEFAULT 0,
+  processing_started_at DATETIME NULL,
+  sent_at DATETIME NULL,
+  provider_message_id VARCHAR(255) NULL,
+  last_error TEXT NULL,
   INDEX idx_followups_lead_id (lead_id),
   INDEX idx_followups_status_date (status, scheduled_date),
   INDEX idx_followups_cancelled (cancelled),
+  INDEX idx_followups_due (status, cancelled, scheduled_date),
   CONSTRAINT fk_followups_lead
     FOREIGN KEY (lead_id) REFERENCES leads(id)
     ON DELETE CASCADE
     ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE messages
+  ADD CONSTRAINT fk_messages_followup
+  FOREIGN KEY (followup_id) REFERENCES followups(id)
+  ON DELETE CASCADE
+  ON UPDATE CASCADE;
 
 CREATE TABLE IF NOT EXISTS tags (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -89,6 +116,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   INDEX idx_audit_user_id (user_id),
   INDEX idx_audit_created_at (created_at),
   INDEX idx_audit_entity (entity),
+  INDEX idx_audit_entity_history (entity, entity_id, created_at),
   CONSTRAINT fk_audit_user
     FOREIGN KEY (user_id) REFERENCES users(id)
     ON DELETE SET NULL
@@ -105,6 +133,7 @@ CREATE TABLE IF NOT EXISTS contact_groups (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_contact_groups_created_by (created_by),
+  INDEX idx_contact_groups_created_at (created_at),
   CONSTRAINT fk_contact_groups_user
     FOREIGN KEY (created_by) REFERENCES users(id)
     ON DELETE SET NULL
@@ -119,7 +148,8 @@ CREATE TABLE IF NOT EXISTS student (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   last_action_at DATETIME NULL,
   INDEX idx_student_status (status),
-  INDEX idx_student_last_action_at (last_action_at)
+  INDEX idx_student_last_action_at (last_action_at),
+  INDEX idx_student_status_created_at (status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS contact_group_members (
@@ -134,6 +164,7 @@ CREATE TABLE IF NOT EXISTS contact_group_members (
   UNIQUE KEY uq_contact_group_member (group_id, contact_type, contact_id),
   INDEX idx_contact_group_members_group_id (group_id),
   INDEX idx_contact_group_members_contact (contact_type, contact_id),
+  INDEX idx_group_members_created_at (group_id, created_at),
   CONSTRAINT fk_contact_group_members_group
     FOREIGN KEY (group_id) REFERENCES contact_groups(id)
     ON DELETE CASCADE
@@ -155,6 +186,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   INDEX idx_tasks_status (status),
   INDEX idx_tasks_priority (priority),
   INDEX idx_tasks_assigned_to (assigned_to),
+  INDEX idx_tasks_open_queue (status, priority, created_at),
   CONSTRAINT fk_tasks_student
     FOREIGN KEY (student_id) REFERENCES student(id)
     ON DELETE CASCADE
@@ -174,6 +206,7 @@ CREATE TABLE IF NOT EXISTS student_action (
   INDEX idx_student_action_student_id (student_id),
   INDEX idx_student_action_type (type),
   INDEX idx_student_action_created_at (created_at),
+  INDEX idx_student_action_history (student_id, created_at),
   CONSTRAINT fk_student_action_student
     FOREIGN KEY (student_id) REFERENCES student(id)
     ON DELETE CASCADE
@@ -190,6 +223,7 @@ CREATE TABLE IF NOT EXISTS tracking_event (
   INDEX idx_tracking_event_type (event_type),
   INDEX idx_tracking_event_source (source),
   INDEX idx_tracking_event_created_at (created_at),
+  INDEX idx_tracking_student_history (student_id, created_at),
   CONSTRAINT fk_tracking_event_student
     FOREIGN KEY (student_id) REFERENCES student(id)
     ON DELETE CASCADE

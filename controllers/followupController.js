@@ -1,6 +1,7 @@
 const { FollowUp, Lead, sequelize } = require("../models");
 const { processPendingFollowups } = require("../services/whatsappService");
 const { recordAudit } = require("../services/auditService");
+const { getPagination, sendCollection } = require("../services/pagination");
 
 const createFollowUp = async (req, res, next) => {
   const transaction = await sequelize.transaction();
@@ -10,9 +11,7 @@ const createFollowUp = async (req, res, next) => {
 
     if (!lead_id || !scheduled_date || !message) {
       await transaction.rollback();
-      return res
-        .status(400)
-        .json({ message: "lead_id, scheduled_date and message are required" });
+      return res.status(400).json({ message: "lead_id, scheduled_date and message are required" });
     }
 
     const lead = await Lead.findByPk(lead_id, { transaction });
@@ -71,9 +70,10 @@ const processFollowups = async (req, res, next) => {
   }
 };
 
-const getPendingFollowUps = async (_req, res, next) => {
+const getPendingFollowUps = async (req, res, next) => {
   try {
-    const followUps = await FollowUp.findAll({
+    const pagination = getPagination(req.query);
+    const { rows, count } = await FollowUp.findAndCountAll({
       where: { status: "pending", cancelled: false },
       include: [
         {
@@ -82,10 +82,13 @@ const getPendingFollowUps = async (_req, res, next) => {
           attributes: ["id", "name", "phone", "email", "status"]
         }
       ],
-      order: [["scheduled_date", "ASC"]]
+      order: [["scheduled_date", "ASC"]],
+      limit: pagination.limit,
+      offset: pagination.offset,
+      distinct: true
     });
 
-    return res.json(followUps);
+    return sendCollection(res, rows, count, pagination);
   } catch (error) {
     return next(error);
   }

@@ -32,9 +32,30 @@ const FollowUp = sequelize.define(
       defaultValue: false
     },
     status: {
-      type: DataTypes.ENUM("pending", "completed"),
+      type: DataTypes.ENUM("pending", "processing", "completed", "failed"),
       allowNull: false,
       defaultValue: "pending"
+    },
+    attempt_count: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0
+    },
+    processing_started_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    sent_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    provider_message_id: {
+      type: DataTypes.STRING(255),
+      allowNull: true
+    },
+    last_error: {
+      type: DataTypes.TEXT,
+      allowNull: true
     }
   },
   {

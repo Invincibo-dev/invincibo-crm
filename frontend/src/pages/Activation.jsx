@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import api from "../lib/api";
+import api, { collectionData } from "../lib/api";
 import { clearToken } from "../lib/auth";
 
 const statusLabels = {
@@ -34,20 +34,24 @@ const Activation = () => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const handleUnauthorized = () => {
+  const handleUnauthorized = useCallback(() => {
     clearToken();
     navigate("/login", { replace: true });
-  };
+  }, [navigate]);
 
-  const loadData = async () => {
-    const params = selectedStatus !== "all" ? { status: selectedStatus } : {};
+  const loadData = useCallback(async () => {
+    const params = {
+      page: 1,
+      limit: 250,
+      ...(selectedStatus !== "all" ? { status: selectedStatus } : {})
+    };
     const [summaryRes, studentsRes] = await Promise.all([
       api.get("/activation/dashboard/summary"),
       api.get("/activation/students", { params })
     ]);
     setSummary(summaryRes.data);
-    setStudents(Array.isArray(studentsRes.data) ? studentsRes.data : []);
-  };
+    setStudents(collectionData(studentsRes.data));
+  }, [selectedStatus]);
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -66,7 +70,7 @@ const Activation = () => {
       }
     };
     bootstrap();
-  }, [selectedStatus]);
+  }, [handleUnauthorized, loadData]);
 
   const counts = useMemo(() => {
     return Object.keys(statusLabels).map((status) => ({
@@ -178,22 +182,52 @@ const Activation = () => {
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Activation</h1>
-            <p className="mt-1 text-sm text-slate-500">Suivi onboarding, risques et recovery WhatsApp.</p>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              Activation
+            </h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Suivi onboarding, risques et recovery WhatsApp.
+            </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/dashboard")}>Dashboard</button>
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/support")}>Support</button>
-            <button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" onClick={() => navigate("/groups")}>Groupes</button>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/dashboard")}
+            >
+              Dashboard
+            </button>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/support")}
+            >
+              Support
+            </button>
+            <button
+              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              onClick={() => navigate("/groups")}
+            >
+              Groupes
+            </button>
           </div>
         </div>
 
-        {error && <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-        {success && <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div>}
+        {error && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {success}
+          </div>
+        )}
 
         <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
           {counts.map((item) => (
-            <div key={item.status} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div
+              key={item.status}
+              className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm"
+            >
               <div className="text-2xl font-bold text-slate-900">{item.value}</div>
               <div className="text-xs font-semibold uppercase text-slate-500">{item.label}</div>
             </div>
@@ -201,33 +235,83 @@ const Activation = () => {
         </div>
 
         <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-3">
-          <form className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" onSubmit={createStudent}>
+          <form
+            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+            onSubmit={createStudent}
+          >
             <h2 className="font-semibold text-slate-900">Ajouter eleve</h2>
-            <input className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Nom" value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} required />
-            <input className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2" placeholder="Telephone" value={form.phone} onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))} required />
-            <select className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2" value={form.status} onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}>
-              {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            <input
+              className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2"
+              placeholder="Nom"
+              value={form.name}
+              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+              required
+            />
+            <input
+              className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2"
+              placeholder="Telephone"
+              value={form.phone}
+              onChange={(event) => setForm((prev) => ({ ...prev, phone: event.target.value }))}
+              required
+            />
+            <select
+              className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2"
+              value={form.status}
+              onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}
+            >
+              {Object.entries(statusLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
-            <button className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting}>Creer</button>
+            <button
+              className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+              disabled={submitting}
+            >
+              Creer
+            </button>
           </form>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm xl:col-span-2">
             <h2 className="font-semibold text-slate-900">Automation</h2>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <button className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-60" disabled={submitting} onClick={checkAtRisk}>Verifier a risque</button>
-              <button className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60" disabled={submitting} onClick={recoverBatch}>Recovery at-risk</button>
+              <button
+                className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                disabled={submitting}
+                onClick={checkAtRisk}
+              >
+                Verifier a risque
+              </button>
+              <button
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                disabled={submitting}
+                onClick={recoverBatch}
+              >
+                Recovery at-risk
+              </button>
             </div>
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <p className="text-sm font-semibold text-slate-900">Eleves a surveiller</p>
-              <p className="mt-1 text-sm text-slate-600">{summary?.at_risk_students?.length || 0} eleve(s) sans action recente.</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {summary?.at_risk_students?.length || 0} eleve(s) sans action recente.
+              </p>
             </div>
           </div>
         </div>
 
         <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <select className="rounded-xl border border-slate-300 bg-white px-3 py-2" value={selectedStatus} onChange={(event) => setSelectedStatus(event.target.value)}>
+          <select
+            className="rounded-xl border border-slate-300 bg-white px-3 py-2"
+            value={selectedStatus}
+            onChange={(event) => setSelectedStatus(event.target.value)}
+          >
             <option value="all">Tous les statuts</option>
-            {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {Object.entries(statusLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
           <p className="text-sm text-slate-500">{students.length} eleve(s)</p>
         </div>
@@ -246,24 +330,52 @@ const Activation = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {students.length === 0 ? (
-                  <tr><td className="px-4 py-6 text-center text-slate-500" colSpan="5">Aucun eleve.</td></tr>
-                ) : students.map((student) => (
-                  <tr key={student.id}>
-                    <td className="px-4 py-3 font-medium text-slate-900">{student.name}</td>
-                    <td className="px-4 py-3 text-slate-600">{student.phone}</td>
-                    <td className="px-4 py-3 text-slate-600">{statusLabels[student.status] || student.status}</td>
-                    <td className="px-4 py-3 text-slate-600">{student.last_action_at ? new Date(student.last_action_at).toLocaleString("fr-FR") : "-"}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        {actionOptions.map((action) => (
-                          <button key={action.value} className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100" onClick={() => updateProgress(student, action.value)}>{action.label}</button>
-                        ))}
-                        <button className="rounded-lg border border-sky-300 px-2 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50" onClick={() => openActions(student)}>Historique</button>
-                        <button className="rounded-lg border border-amber-300 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50" onClick={() => triggerRecovery(student)}>Recovery</button>
-                      </div>
+                  <tr>
+                    <td className="px-4 py-6 text-center text-slate-500" colSpan="5">
+                      Aucun eleve.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  students.map((student) => (
+                    <tr key={student.id}>
+                      <td className="px-4 py-3 font-medium text-slate-900">{student.name}</td>
+                      <td className="px-4 py-3 text-slate-600">{student.phone}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {statusLabels[student.status] || student.status}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {student.last_action_at
+                          ? new Date(student.last_action_at).toLocaleString("fr-FR")
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          {actionOptions.map((action) => (
+                            <button
+                              key={action.value}
+                              className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              onClick={() => updateProgress(student, action.value)}
+                            >
+                              {action.label}
+                            </button>
+                          ))}
+                          <button
+                            className="rounded-lg border border-sky-300 px-2 py-1 text-xs font-medium text-sky-700 hover:bg-sky-50"
+                            onClick={() => openActions(student)}
+                          >
+                            Historique
+                          </button>
+                          <button
+                            className="rounded-lg border border-amber-300 px-2 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50"
+                            onClick={() => triggerRecovery(student)}
+                          >
+                            Recovery
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -273,13 +385,19 @@ const Activation = () => {
           <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="font-semibold text-slate-900">Historique - {selectedStudent.name}</h2>
             <div className="mt-3 space-y-2">
-              {actions.length === 0 ? <p className="text-sm text-slate-500">Aucune action.</p> : actions.map((action) => (
-                <div key={action.id} className="rounded-xl border border-slate-200 p-3 text-sm">
-                  <div className="font-medium text-slate-900">{action.type}</div>
-                  <div className="text-slate-600">{action.content}</div>
-                  <div className="text-xs text-slate-500">{new Date(action.created_at).toLocaleString("fr-FR")}</div>
-                </div>
-              ))}
+              {actions.length === 0 ? (
+                <p className="text-sm text-slate-500">Aucune action.</p>
+              ) : (
+                actions.map((action) => (
+                  <div key={action.id} className="rounded-xl border border-slate-200 p-3 text-sm">
+                    <div className="font-medium text-slate-900">{action.type}</div>
+                    <div className="text-slate-600">{action.content}</div>
+                    <div className="text-xs text-slate-500">
+                      {new Date(action.created_at).toLocaleString("fr-FR")}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}

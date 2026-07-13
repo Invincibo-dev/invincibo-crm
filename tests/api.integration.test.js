@@ -4,6 +4,8 @@ const bcrypt = require("bcryptjs");
 process.env.API_RATE_LIMIT_MAX = "100000";
 process.env.LOGIN_RATE_LIMIT_MAX = "100000";
 process.env.JWT_SECRET = process.env.JWT_SECRET || "test_secret";
+process.env.ADMIN_BOOTSTRAP_TOKEN = "test_bootstrap_secret";
+process.env.TRACKING_SECRET = "test_tracking_secret";
 
 const app = require("../app");
 const {
@@ -19,6 +21,7 @@ const {
   ContactGroupMember
 } = require("../models");
 const trackingService = require("../services/activation/trackingService");
+const { processPendingFollowups } = require("../services/whatsappService");
 
 describe("Root CRM backend integration", () => {
   const expectJson = (response) => {
@@ -63,6 +66,24 @@ describe("Root CRM backend integration", () => {
 
   describe("AUTH", () => {
     test("POST /api/auth/register creates the first admin and returns a JWT", async () => {
+      const response = await request(app)
+        .post("/api/auth/register")
+        .set("x-admin-bootstrap-token", process.env.ADMIN_BOOTSTRAP_TOKEN)
+        .send({
+          name: "Admin CRM",
+          email: "admin@crm.local",
+          password: "StrongPass123",
+          role: "admin"
+        });
+
+      expect(response.status).toBe(201);
+      expectJson(response);
+      expect(response.body.token).toBeDefined();
+      expect(response.body.user.email).toBe("admin@crm.local");
+      expect(response.body.user.role).toBe("admin");
+    });
+
+    test("POST /api/auth/register rejects first-admin bootstrap without its secret", async () => {
       const response = await request(app).post("/api/auth/register").send({
         name: "Admin CRM",
         email: "admin@crm.local",
@@ -70,11 +91,29 @@ describe("Root CRM backend integration", () => {
         role: "admin"
       });
 
-      expect(response.status).toBe(201);
-      expectJson(response);
-      expect(response.body.token).toBeDefined();
-      expect(response.body.user.email).toBe("admin@crm.local");
-      expect(response.body.user.role).toBe("admin");
+      expect(response.status).toBe(403);
+      expect(await User.count()).toBe(0);
+    });
+
+    test("POST /api/auth/register permits the bootstrap claim only once", async () => {
+      const payload = {
+        name: "Admin CRM",
+        email: "admin@crm.local",
+        password: "StrongPass123",
+        role: "admin"
+      };
+      const first = await request(app)
+        .post("/api/auth/register")
+        .set("x-admin-bootstrap-token", process.env.ADMIN_BOOTSTRAP_TOKEN)
+        .send(payload);
+      const second = await request(app)
+        .post("/api/auth/register")
+        .set("x-admin-bootstrap-token", process.env.ADMIN_BOOTSTRAP_TOKEN)
+        .send({ ...payload, email: "second@crm.local" });
+
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(403);
+      expect(await User.count()).toBe(1);
     });
 
     test("POST /api/auth/login accepts email/password and returns a JWT", async () => {
@@ -154,14 +193,11 @@ describe("Root CRM backend integration", () => {
     test("POST /api/activation/students creates a student", async () => {
       const token = await loginAsAdmin();
 
-      const response = await request(app)
-        .post("/api/activation/students")
-        .set(auth(token))
-        .send({
-          name: "Jean Pierre",
-          phone: "+50934123456",
-          status: "paid_training"
-        });
+      const response = await request(app).post("/api/activation/students").set(auth(token)).send({
+        name: "Jean Pierre",
+        phone: "+50934123456",
+        status: "paid_training"
+      });
 
       expect(response.status).toBe(201);
       expectJson(response);
@@ -187,6 +223,28 @@ describe("Root CRM backend integration", () => {
       expect(Array.isArray(response.body)).toBe(true);
       expect(response.body).toHaveLength(1);
       expect(response.body[0].status).toBe("onboarding");
+    });
+
+    test("GET /api/activation/students returns pagination metadata when requested", async () => {
+      const token = await loginAsAdmin();
+      await Student.bulkCreate([
+        { name: "Page One", phone: "+50931000001" },
+        { name: "Page Two", phone: "+50931000002" }
+      ]);
+
+      const response = await request(app)
+        .get("/api/activation/students?page=1&limit=1")
+        .set(auth(token));
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.pagination).toMatchObject({
+        page: 1,
+        limit: 1,
+        total: 2,
+        total_pages: 2,
+        has_next: true
+      });
     });
 
     test("GET /api/activation/dashboard/summary returns activation summary", async () => {
@@ -223,7 +281,9 @@ describe("Root CRM backend integration", () => {
       expect(response.body.paid_training).toBe(1);
       expect(response.body.blocked).toBe(1);
       expect(Array.isArray(response.body.at_risk_students)).toBe(true);
-      expect(response.body.at_risk_students.some((student) => student.name === "At Risk Candidate")).toBe(true);
+      expect(
+        response.body.at_risk_students.some((student) => student.name === "At Risk Candidate")
+      ).toBe(true);
     });
   });
 
@@ -244,7 +304,10 @@ describe("Root CRM backend integration", () => {
       };
 
       const first = await request(app).post("/api/activation/tasks").set(auth(token)).send(payload);
-      const duplicate = await request(app).post("/api/activation/tasks").set(auth(token)).send(payload);
+      const duplicate = await request(app)
+        .post("/api/activation/tasks")
+        .set(auth(token))
+        .send(payload);
 
       expect(first.status).toBe(201);
       expectJson(first);
@@ -323,7 +386,9 @@ describe("Root CRM backend integration", () => {
       expect(resolved.body.status).toBe("resolved");
       expect(resolved.body.resolved_at).toBeDefined();
 
-      const actionCount = await StudentAction.count({ where: { student_id: student.id, type: "support" } });
+      const actionCount = await StudentAction.count({
+        where: { student_id: student.id, type: "support" }
+      });
       expect(actionCount).toBe(2);
 
       await student.reload();
@@ -361,10 +426,19 @@ describe("Root CRM backend integration", () => {
         .send();
       expect(recovery.status).toBe(200);
 
-      const check = await request(app).post("/api/activation/at-risk/check").set(auth(token)).send();
+      const check = await request(app)
+        .post("/api/activation/at-risk/check")
+        .set(auth(token))
+        .send();
       expect(check.status).toBe(200);
 
-      const taskRows = await Task.findAll({ order: [["student_id", "ASC"], ["type", "ASC"]], raw: true });
+      const taskRows = await Task.findAll({
+        order: [
+          ["student_id", "ASC"],
+          ["type", "ASC"]
+        ],
+        raw: true
+      });
       const byStudent = taskRows.reduce((acc, row) => {
         acc[row.student_id] = acc[row.student_id] || [];
         acc[row.student_id].push(row.type);
@@ -396,16 +470,72 @@ describe("Root CRM backend integration", () => {
       });
       expect(eventCount).toBe(1);
     });
+
+    test("tracking tokens expire and reject a modified signature", () => {
+      process.env.TRACKING_TOKEN_TTL_SECONDS = "60";
+      const now = Date.now();
+      const nowSpy = jest.spyOn(Date, "now").mockReturnValue(now);
+      const token = trackingService.generateTrackingLink(1, "activation").split("/t/")[1];
+
+      expect(() => trackingService.decodeToken(`${token}x`)).toThrow("Invalid tracking signature");
+      nowSpy.mockReturnValue(now + 61_000);
+      expect(() => trackingService.decodeToken(token)).toThrow("Tracking token expired");
+      nowSpy.mockRestore();
+      delete process.env.TRACKING_TOKEN_TTL_SECONDS;
+    });
+  });
+
+  describe("FOLLOW-UP DELIVERY", () => {
+    test("concurrent processors claim and deliver a follow-up only once", async () => {
+      const lead = await Lead.create({ name: "One Delivery", phone: "+50934000123" });
+      const followUp = await FollowUp.create({
+        lead_id: lead.id,
+        scheduled_date: new Date(Date.now() - 1000),
+        message: "Only once",
+        status: "pending"
+      });
+
+      await Promise.all([processPendingFollowups(), processPendingFollowups()]);
+
+      await followUp.reload();
+      expect(followUp.status).toBe("completed");
+      expect(followUp.attempt_count).toBe(1);
+      expect(followUp.sent_at).toBeTruthy();
+      expect(await Message.count({ where: { followup_id: followUp.id } })).toBe(1);
+    });
+
+    test("keeps a provider-accepted delivery in processing when local finalization fails", async () => {
+      const lead = await Lead.create({ name: "Reconcile Me", phone: "+50934000456" });
+      const followUp = await FollowUp.create({
+        lead_id: lead.id,
+        scheduled_date: new Date(Date.now() - 1000),
+        message: "Accepted remotely",
+        status: "pending"
+      });
+      const originalFindOrCreate = Message.findOrCreate.bind(Message);
+      const finalizeSpy = jest
+        .spyOn(Message, "findOrCreate")
+        .mockRejectedValueOnce(new Error("local database finalization failed"))
+        .mockImplementation(originalFindOrCreate);
+
+      await processPendingFollowups();
+
+      finalizeSpy.mockRestore();
+      await followUp.reload();
+      expect(followUp.status).toBe("processing");
+      expect(followUp.last_error).toContain("local database finalization failed");
+    });
   });
 
   describe("CONTACT GROUPS", () => {
     test("POST /api/groups creates a group", async () => {
       const token = await loginAsAdmin();
 
-      const response = await request(app)
-        .post("/api/groups")
-        .set(auth(token))
-        .send({ name: "Clients formation", description: "Contacts formation", category: "formation" });
+      const response = await request(app).post("/api/groups").set(auth(token)).send({
+        name: "Clients formation",
+        description: "Contacts formation",
+        category: "formation"
+      });
 
       expect(response.status).toBe(201);
       expectJson(response);
@@ -417,7 +547,10 @@ describe("Root CRM backend integration", () => {
 
     test("POST /api/groups/:id/members adds a member and prevents duplicates", async () => {
       const token = await loginAsAdmin();
-      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Prospects interesses" });
+      const group = await request(app)
+        .post("/api/groups")
+        .set(auth(token))
+        .send({ name: "Prospects interesses" });
       const lead = await Lead.create({
         name: "Group Lead",
         phone: "+50955000001",
@@ -427,7 +560,12 @@ describe("Root CRM backend integration", () => {
       const first = await request(app)
         .post(`/api/groups/${group.body.id}/members`)
         .set(auth(token))
-        .send({ contact_type: "lead", contact_id: lead.id, problem_reason: "interested", notes: "manual add" });
+        .send({
+          contact_type: "lead",
+          contact_id: lead.id,
+          problem_reason: "interested",
+          notes: "manual add"
+        });
       const duplicate = await request(app)
         .post(`/api/groups/${group.body.id}/members`)
         .set(auth(token))
@@ -445,8 +583,16 @@ describe("Root CRM backend integration", () => {
 
     test("POST /api/groups/:id/import-csv creates and reuses leads while adding valid contacts to group", async () => {
       const token = await loginAsAdmin();
-      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Import CSV" });
-      await Lead.create({ name: "Existing CSV", phone: "+50955000009", email: "old@example.com", status: "new" });
+      const group = await request(app)
+        .post("/api/groups")
+        .set(auth(token))
+        .send({ name: "Import CSV" });
+      await Lead.create({
+        name: "Existing CSV",
+        phone: "+50955000009",
+        email: "old@example.com",
+        status: "new"
+      });
 
       const response = await request(app)
         .post(`/api/groups/${group.body.id}/import-csv`)
@@ -464,7 +610,9 @@ describe("Root CRM backend integration", () => {
       expect(response.body.duplicates_ignored).toBe(1);
       expect(response.body.total_rows).toBe(4);
 
-      const members = await request(app).get(`/api/groups/${group.body.id}/members`).set(auth(token));
+      const members = await request(app)
+        .get(`/api/groups/${group.body.id}/members`)
+        .set(auth(token));
       expect(members.status).toBe(200);
       expect(members.body).toHaveLength(2);
       expect(members.body.some((member) => member.problem_reason === "non paye")).toBe(true);
@@ -473,7 +621,10 @@ describe("Root CRM backend integration", () => {
 
     test("PATCH and DELETE group member update metadata and remove membership only", async () => {
       const token = await loginAsAdmin();
-      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Patch Members" });
+      const group = await request(app)
+        .post("/api/groups")
+        .set(auth(token))
+        .send({ name: "Patch Members" });
       const lead = await Lead.create({ name: "Patch Lead", phone: "+50955000010", status: "new" });
       const member = await request(app)
         .post(`/api/groups/${group.body.id}/members`)
@@ -498,8 +649,15 @@ describe("Root CRM backend integration", () => {
 
     test("POST /api/groups/:id/send-message dry_run renders recipients", async () => {
       const token = await loginAsAdmin();
-      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Coaching prive" });
-      const lead = await Lead.create({ name: "Dry Run Lead", phone: "+50955000003", status: "new" });
+      const group = await request(app)
+        .post("/api/groups")
+        .set(auth(token))
+        .send({ name: "Coaching prive" });
+      const lead = await Lead.create({
+        name: "Dry Run Lead",
+        phone: "+50955000003",
+        status: "new"
+      });
       await request(app)
         .post(`/api/groups/${group.body.id}/members`)
         .set(auth(token))
@@ -520,8 +678,15 @@ describe("Root CRM backend integration", () => {
 
     test("POST /api/groups/:id/send-message requires dry_run before real send", async () => {
       const token = await loginAsAdmin();
-      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "No direct send" });
-      const lead = await Lead.create({ name: "No Direct Lead", phone: "+50955000004", status: "new" });
+      const group = await request(app)
+        .post("/api/groups")
+        .set(auth(token))
+        .send({ name: "No direct send" });
+      const lead = await Lead.create({
+        name: "No Direct Lead",
+        phone: "+50955000004",
+        status: "new"
+      });
       await request(app)
         .post(`/api/groups/${group.body.id}/members`)
         .set(auth(token))
@@ -538,11 +703,24 @@ describe("Root CRM backend integration", () => {
 
     test("POST /api/groups/:id/send-message sends after dry_run with test mock", async () => {
       const token = await loginAsAdmin();
-      const group = await request(app).post("/api/groups").set(auth(token)).send({ name: "Send Group" });
+      const group = await request(app)
+        .post("/api/groups")
+        .set(auth(token))
+        .send({ name: "Send Group" });
       const lead = await Lead.create({ name: "Send Lead", phone: "+50955000005", status: "new" });
-      const student = await Student.create({ name: "Send Student", phone: "+50955000006", status: "at_risk" });
-      await request(app).post(`/api/groups/${group.body.id}/members`).set(auth(token)).send({ contact_type: "lead", contact_id: lead.id });
-      await request(app).post(`/api/groups/${group.body.id}/members`).set(auth(token)).send({ contact_type: "student", contact_id: student.id });
+      const student = await Student.create({
+        name: "Send Student",
+        phone: "+50955000006",
+        status: "at_risk"
+      });
+      await request(app)
+        .post(`/api/groups/${group.body.id}/members`)
+        .set(auth(token))
+        .send({ contact_type: "lead", contact_id: lead.id });
+      await request(app)
+        .post(`/api/groups/${group.body.id}/members`)
+        .set(auth(token))
+        .send({ contact_type: "student", contact_id: student.id });
 
       const preview = await request(app)
         .post(`/api/groups/${group.body.id}/send-message`)
@@ -560,7 +738,9 @@ describe("Root CRM backend integration", () => {
       expect(response.status).toBe(200);
       expect(response.body.sent).toBe(2);
       expect(await Message.count({ where: { lead_id: lead.id } })).toBe(1);
-      expect(await StudentAction.count({ where: { student_id: student.id, type: "message" } })).toBe(1);
+      expect(
+        await StudentAction.count({ where: { student_id: student.id, type: "message" } })
+      ).toBe(1);
     });
 
     test("GET /api/groups requires JWT", async () => {

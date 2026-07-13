@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../lib/api";
 import { clearToken } from "../lib/auth";
@@ -23,15 +23,15 @@ const Users = () => {
     navigate("/login", { replace: true });
   };
 
-  const handleUnauthorized = () => {
+  const handleUnauthorized = useCallback(() => {
     clearToken();
     navigate("/login", { replace: true });
-  };
+  }, [navigate]);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     const usersRes = await api.get("/auth/users");
     setUsers(usersRes.data || []);
-  };
+  }, []);
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -57,7 +57,7 @@ const Users = () => {
     };
 
     bootstrap();
-  }, []);
+  }, [fetchUsers, handleUnauthorized]);
 
   const onChange = (field) => (e) => {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
@@ -106,7 +106,9 @@ const Users = () => {
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Gestion Utilisateurs</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              Gestion Utilisateurs
+            </h1>
             <p className="mt-1 text-sm text-slate-500">Creation d'agents et suivi des comptes.</p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">

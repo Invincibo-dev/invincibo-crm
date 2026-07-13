@@ -11,11 +11,13 @@ const trackingRoutes = require("./routes/trackingRoutes");
 const { authenticateToken } = require("./middleware/authMiddleware");
 const { apiLimiter } = require("./middleware/rateLimiters");
 const errorHandler = require("./middleware/errorHandler");
+const runtimeState = require("./config/runtimeState");
 
 const app = express();
 app.set("trust proxy", 1);
 
-const defaultCorsOrigin = process.env.NODE_ENV === "production" ? "https://cv-pam.com" : "http://localhost:5173";
+const defaultCorsOrigin =
+  process.env.NODE_ENV === "production" ? "https://cv-pam.com" : "http://localhost:5173";
 const allowedOrigins = (process.env.CORS_ORIGIN || defaultCorsOrigin)
   .split(",")
   .map((origin) => origin.trim())
@@ -41,6 +43,15 @@ app.use("/api", apiLimiter);
 
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
+});
+app.get("/health/live", (_req, res) => {
+  res.json({ status: "ok" });
+});
+app.get("/health/ready", (_req, res) => {
+  if (!runtimeState.isReady()) {
+    return res.status(503).json({ status: "not_ready" });
+  }
+  return res.json({ status: "ready" });
 });
 
 app.use(trackingRoutes);

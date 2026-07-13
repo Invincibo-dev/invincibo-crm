@@ -1,4 +1,5 @@
 const groupService = require("../services/groupService");
+const { getPagination, sendCollection } = require("../services/pagination");
 
 const createGroup = async (req, res, next) => {
   try {
@@ -15,10 +16,11 @@ const createGroup = async (req, res, next) => {
   }
 };
 
-const listGroups = async (_req, res, next) => {
+const listGroups = async (req, res, next) => {
   try {
-    const groups = await groupService.listGroups();
-    return res.json(groups);
+    const pagination = getPagination(req.query);
+    const { rows, count } = await groupService.listGroups(pagination);
+    return sendCollection(res, rows, count, pagination);
   } catch (error) {
     return next(error);
   }
