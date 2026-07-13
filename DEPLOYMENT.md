@@ -195,6 +195,11 @@ Run migrations after creating a verified backup and before starting the new API
 process. See `DATABASE.md` for the schema map, pagination contract, backup, and
 restore-validation procedure.
 
+Hostinger managed Node.js hosting does not expose npm through SSH. Its deployment
+invokes the npm lifecycle automatically, so `prestart` runs the idempotent
+migration runner immediately before `start`. Review the deployment log to confirm
+the migration result before validating `/health/ready`.
+
 ## 6) Frontend Domain
 
 In Hostinger, configure:

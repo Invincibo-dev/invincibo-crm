@@ -61,6 +61,11 @@ Production deployment order:
 5. Confirm `npm run db:migrate:status` shows no pending migration.
 6. Start or reload the API and verify `/health/ready`.
 
+On Hostinger managed Node.js hosting, npm commands are not exposed through SSH.
+The `prestart` lifecycle therefore runs `scripts/migrate.js` automatically with
+the application environment before every API start. Already-applied migrations
+are skipped. A migration failure prevents the new process from becoming ready.
+
 ## Pagination contract
 
 Collection endpoints accept positive `page` and `limit` query parameters. The
