@@ -21,7 +21,7 @@ describe("server startup readiness", () => {
     process.env.FOLLOWUP_CRON_ENABLED = "false";
   });
 
-  test("authenticates the database before listening", async () => {
+  test("listens promptly, then marks ready after database authentication", async () => {
     const order = [];
     sequelize.authenticate.mockImplementation(async () => order.push("database"));
     app.listen.mockImplementation((_port, callback) => {
@@ -30,17 +30,19 @@ describe("server startup readiness", () => {
       return { close: jest.fn() };
     });
 
-    await startServer();
+    const { ready } = startServer();
+    await ready;
 
-    expect(order).toEqual(["database", "listen"]);
+    expect(order).toEqual(["listen", "database"]);
     expect(runtimeState.isReady()).toBe(true);
   });
 
-  test("does not listen when database authentication fails", async () => {
+  test("stays not-ready when database authentication fails", async () => {
     sequelize.authenticate.mockRejectedValue(new Error("database unavailable"));
 
-    await expect(startServer()).rejects.toThrow("database unavailable");
-    expect(app.listen).not.toHaveBeenCalled();
+    const { ready } = startServer();
+    await expect(ready).rejects.toThrow("database unavailable");
+    expect(app.listen).toHaveBeenCalledTimes(1);
     expect(runtimeState.isReady()).toBe(false);
   });
 });

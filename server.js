@@ -26,25 +26,38 @@ const initializeRuntime = async () => {
   runtimeState.markReady();
 };
 
-const startServer = async () => {
+const startServer = () => {
+  validateProductionConfig();
+  runtimeState.markNotReady();
+  const server = app.listen(port, () => {
+    console.log(`CRM API listening on port ${port}; initialization in progress`);
+  });
+  const ready = initializeRuntime();
+  return { server, ready };
+};
+
+const launch = () => {
   try {
-    validateProductionConfig();
-    await initializeRuntime();
-    return app.listen(port, () => {
-      console.log(`CRM API listening on port ${port}`);
-    });
+    const { server, ready } = startServer();
+    ready
+      .then(() => console.log("CRM API is ready"))
+      .catch((error) => {
+        runtimeState.markNotReady();
+        console.error("Failed to initialize runtime:", error.message);
+        server.close(() => process.exit(1));
+        setTimeout(() => process.exit(1), 1000).unref();
+      });
   } catch (error) {
     console.error("Failed to start server:", error.message);
     runtimeState.markNotReady();
-    if (require.main === module) {
-      process.exit(1);
-    }
-    throw error;
+    process.exit(1);
   }
 };
 
-if (require.main === module) {
-  startServer();
+// Hostinger loads the entry file through a wrapper, so require.main guards do
+// not work there. Tests opt out through NODE_ENV instead.
+if (process.env.NODE_ENV !== "test") {
+  launch();
 }
 
-module.exports = { initializeRuntime, startServer };
+module.exports = { initializeRuntime, startServer, launch };

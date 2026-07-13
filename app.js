@@ -54,6 +54,14 @@ app.get("/health/ready", (_req, res) => {
   return res.json({ status: "ready" });
 });
 
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV !== "test" && !runtimeState.isReady()) {
+    res.set("Retry-After", "5");
+    return res.status(503).json({ message: "Service is starting", status: "not_ready" });
+  }
+  return next();
+});
+
 app.use(trackingRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/leads", authenticateToken, leadRoutes);
