@@ -33,6 +33,11 @@ erDiagram
 either `leads` or `student`. MySQL cannot enforce that polymorphic foreign key,
 so the service layer validates the referenced contact.
 
+WhatsApp marketing is consent-gated on `leads.whatsapp_opt_in`. The timestamp
+`whatsapp_opt_in_at` records when consent was captured and
+`whatsapp_opt_out_at` blocks later sends. Existing leads default to no consent
+when migration `20260714_001_whatsapp_consent.js` is applied.
+
 ## Migrations
 
 Check status:

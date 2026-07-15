@@ -4,6 +4,7 @@ const { AppError } = require("./errors");
 const { withStudentLock } = require("./studentLock");
 const trackingService = require("./trackingService");
 const taskService = require("../taskService");
+const { recordExplicitOptIn } = require("../whatsappConsentService");
 
 const ACTION_TO_STATUS = {
   onboarding_start: "onboarding",
@@ -134,13 +135,23 @@ const runInChunks = async (items, handler, chunkSize) => {
   return results;
 };
 
-const createStudent = async ({ name, phone, status = "paid_training" }) => {
+const createStudent = async ({
+  name,
+  phone,
+  status = "paid_training",
+  whatsappOptIn = false,
+  whatsappOptInSource = null,
+  createdBy = null
+}) => {
   const normalizedName = normalize(name);
   const normalizedPhone = normalize(phone);
   const normalizedStatus = normalize(status).toLowerCase();
 
   if (!normalizedName || !normalizedPhone) {
     throw new AppError("name and phone are required", 400);
+  }
+  if (whatsappOptIn && !normalize(whatsappOptInSource)) {
+    throw new AppError("whatsapp_opt_in_source is required when consent is granted", 400);
   }
 
   ensureStatusSupported(normalizedStatus);
@@ -155,10 +166,24 @@ const createStudent = async ({ name, phone, status = "paid_training" }) => {
           phone: normalizedPhone,
           status: normalizedStatus,
           created_at: now,
-          last_action_at: now
+          last_action_at: now,
+          whatsapp_opt_in: false,
+          whatsapp_opt_in_at: null,
+          whatsapp_opt_in_source: null
         },
         { transaction }
       );
+
+      if (whatsappOptIn) {
+        await recordExplicitOptIn({
+          contact: student,
+          contactType: "student",
+          source: normalize(whatsappOptInSource),
+          eventAt: now,
+          createdBy,
+          transaction
+        });
+      }
 
       await createActionWithIdempotency({
         studentId: student.id,

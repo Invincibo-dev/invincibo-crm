@@ -2,6 +2,11 @@ const { FollowUp, Lead, sequelize } = require("../models");
 const { processPendingFollowups } = require("../services/whatsappService");
 const { recordAudit } = require("../services/auditService");
 const { getPagination, sendCollection } = require("../services/pagination");
+const {
+  listReviewFollowUps,
+  recoverStuckBatch,
+  reviewFollowUp
+} = require("../services/followupRecoveryService");
 
 const createFollowUp = async (req, res, next) => {
   const transaction = await sequelize.transaction();
@@ -94,8 +99,61 @@ const getPendingFollowUps = async (req, res, next) => {
   }
 };
 
+const getReviewFollowUps = async (req, res, next) => {
+  try {
+    const pagination = getPagination(req.query);
+    const result = await listReviewFollowUps(pagination);
+    return res.json({
+      data: result.rows,
+      pagination: {
+        page: result.page,
+        limit: result.limit,
+        total: result.count,
+        total_pages: Math.ceil(result.count / result.limit),
+        has_next: result.page * result.limit < result.count,
+        has_previous: result.page > 1
+      }
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const runFollowUpRecovery = async (req, res, next) => {
+  try {
+    const result = await recoverStuckBatch({
+      dryRun: req.body?.dry_run === true,
+      limit: req.body?.limit
+    });
+    return res.json({ dry_run: req.body?.dry_run === true, result });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const reviewFollowUpDecision = async (req, res, next) => {
+  try {
+    const result = await reviewFollowUp(
+      req.params.id,
+      req.body?.decision,
+      req.user,
+      req.body?.note
+    );
+    return res.json({
+      followUp: result.followUp,
+      changed: result.changed,
+      idempotent: result.idempotent
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   createFollowUp,
+  getReviewFollowUps,
   getPendingFollowUps,
-  processFollowups
+  processFollowups,
+  reviewFollowUpDecision,
+  runFollowUpRecovery
 };

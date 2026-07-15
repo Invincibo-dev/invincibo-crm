@@ -19,6 +19,8 @@
     "build:frontend": "npm --prefix frontend run build",
     "db:migrate": "node scripts/migrate.js",
     "db:migrate:status": "node scripts/migrate.js --status",
+    "db:staging:report": "node scripts/mysql-staging-report.js",
+    "test:mysql:staging": "jest --config jest.mysql-staging.config.js --runInBand --detectOpenHandles --forceExit --verbose",
     "check": "npm run lint && npm run format:check && npm run test && npm run build:frontend"
   },
   "keywords": [

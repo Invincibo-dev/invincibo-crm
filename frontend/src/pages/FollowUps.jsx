@@ -16,6 +16,9 @@ const FollowUps = () => {
   const [me, setMe] = useState(null);
   const [leads, setLeads] = useState([]);
   const [followups, setFollowups] = useState([]);
+  const [reviewFollowups, setReviewFollowups] = useState([]);
+  const [reviewNotes, setReviewNotes] = useState({});
+  const [reviewingId, setReviewingId] = useState(null);
   const [form, setForm] = useState({
     lead_id: leadFromQuery,
     scheduled_date: defaultDateTime(),
@@ -43,6 +46,12 @@ const FollowUps = () => {
     setMe(meRes.data);
     setLeads(collectionData(leadsRes.data));
     setFollowups(collectionData(followupsRes.data));
+    if (meRes.data?.role === "admin") {
+      const reviewRes = await api.get("/followups/review", { params: { page: 1, limit: 100 } });
+      setReviewFollowups(collectionData(reviewRes.data));
+    } else {
+      setReviewFollowups([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -113,7 +122,7 @@ const FollowUps = () => {
       const response = await api.post("/followups/process");
       const result = response.data?.result || {};
       setSuccess(
-        `Traitement termine: ${result.sent || 0} envoyee(s), ${result.failed || 0} echec(s), ${result.skipped || 0} ignoree(s).`
+        `Traitement termine: ${result.accepted || 0} acceptee(s), ${result.failed || 0} echec(s), ${result.skipped || 0} ignoree(s).`
       );
       await loadData();
     } catch (err) {
@@ -127,6 +136,47 @@ const FollowUps = () => {
       );
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const runRecoveryDryRun = async () => {
+    setSubmitting(true);
+    setError("");
+    setSuccess("");
+    try {
+      const response = await api.post("/followups/recovery/run", { dry_run: true, limit: 100 });
+      const result = response.data?.result || {};
+      setSuccess(
+        `Analyse sans modification: ${result.scanned || 0} inspectee(s), ${result.needs_review || 0} a verifier, ${result.returned_to_pending || 0} retour(s) proposes.`
+      );
+      await loadData();
+    } catch (err) {
+      setError(err.response?.data?.message || "Analyse des relances bloquees impossible.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitReview = async (item, decision) => {
+    const note = String(reviewNotes[item.id] || "").trim();
+    if (!note) {
+      setError("Une note est obligatoire pour toute decision manuelle.");
+      return;
+    }
+    if (!window.confirm("Confirmer cette decision ? Aucun message ne sera envoye.")) return;
+
+    setReviewingId(item.id);
+    setError("");
+    setSuccess("");
+    try {
+      await api.patch(`/followups/${item.id}/review`, { decision, note });
+      setSuccess("Decision de revision enregistree sans envoi WhatsApp.");
+      setReviewNotes((previous) => ({ ...previous, [item.id]: "" }));
+      await loadData();
+    } catch (err) {
+      setError(err.response?.data?.message || "Revision impossible.");
+    } finally {
+      setReviewingId(null);
     }
   };
 
@@ -195,6 +245,107 @@ const FollowUps = () => {
           <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
             {success}
           </div>
+        )}
+
+        {me?.role === "admin" && (
+          <section className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">À vérifier</h2>
+                <p className="text-sm text-slate-600">
+                  Relances ambiguës à décider manuellement. Aucun message n’est envoyé ici.
+                </p>
+              </div>
+              <button
+                className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-medium text-amber-900 disabled:opacity-60"
+                disabled={submitting}
+                onClick={runRecoveryDryRun}
+              >
+                Analyser les blocages (dry-run)
+              </button>
+            </div>
+
+            {reviewFollowups.length === 0 ? (
+              <p className="mt-4 rounded-xl bg-white p-4 text-sm text-slate-500">
+                Aucune relance à vérifier.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {reviewFollowups.map((item) => (
+                  <article
+                    key={item.id}
+                    className="rounded-xl border border-amber-200 bg-white p-4"
+                  >
+                    <div className="grid gap-2 text-sm md:grid-cols-3">
+                      <div>
+                        <div className="font-semibold text-slate-900">
+                          {item.lead?.name || "Contact inconnu"}
+                        </div>
+                        <div className="text-slate-500">{item.lead?.phone || "-"}</div>
+                      </div>
+                      <div className="text-slate-600">
+                        <div>Motif : {item.review_reason || "non renseigné"}</div>
+                        <div>WAMID : {item.provider_message_id || "absent"}</div>
+                        <div>Meta : {item.meta_status || "inconnu"}</div>
+                      </div>
+                      <div className="text-slate-600">
+                        <div>Consentement : {item.consent?.allowed ? "valide" : "bloqué"}</div>
+                        <div>Tentatives : {item.attempt_count}</div>
+                        <div>
+                          Activité :{" "}
+                          {new Date(item.updated_at || item.scheduled_date).toLocaleString("fr-FR")}
+                        </div>
+                        <div>Conseil : {item.system_recommendation}</div>
+                      </div>
+                    </div>
+                    <textarea
+                      className="mt-3 min-h-20 w-full rounded-xl border border-slate-300 px-3 py-2"
+                      placeholder="Note obligatoire"
+                      value={reviewNotes[item.id] || ""}
+                      onChange={(event) =>
+                        setReviewNotes((previous) => ({
+                          ...previous,
+                          [item.id]: event.target.value
+                        }))
+                      }
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        className="rounded-lg bg-emerald-700 px-3 py-2 text-sm text-white disabled:opacity-60"
+                        disabled={reviewingId === item.id}
+                        onClick={() => submitReview(item, "mark_completed")}
+                      >
+                        Marquer terminé
+                      </button>
+                      <button
+                        className="rounded-lg bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-60"
+                        disabled={reviewingId === item.id}
+                        onClick={() => submitReview(item, "mark_failed")}
+                      >
+                        Marquer échoué
+                      </button>
+                      <button
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-60"
+                        disabled={reviewingId === item.id}
+                        onClick={() => submitReview(item, "cancel")}
+                      >
+                        Annuler
+                      </button>
+                      {item.return_to_pending_allowed && (
+                        <button
+                          className="rounded-lg border border-blue-300 px-3 py-2 text-sm text-blue-800 disabled:opacity-60"
+                          disabled={reviewingId === item.id}
+                          onClick={() => submitReview(item, "return_to_pending")}
+                        >
+                          Remettre en attente
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         )}
 
         <div className="mb-5 grid grid-cols-1 gap-4 xl:grid-cols-2">

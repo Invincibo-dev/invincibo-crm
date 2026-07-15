@@ -1,4 +1,7 @@
 const errorHandler = (err, _req, res, _next) => {
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({ message: "Request body too large" });
+  }
   if (err.name === "SequelizeUniqueConstraintError") {
     return res.status(409).json({ message: "Duplicate value detected" });
   }

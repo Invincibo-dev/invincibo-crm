@@ -12,6 +12,9 @@ const {
 } = require("../models");
 const leadWhatsappService = require("./whatsappService");
 const studentWhatsappService = require("./activation/whatsappService");
+const { canSendWhatsApp } = require("./whatsappConsentService");
+const { normalizeWhatsAppPhone } = require("./whatsappPhoneService");
+const { isWhatsAppSendingEnabled } = require("../config/whatsapp");
 
 const CONTACT_TYPES = ["lead", "student"];
 const PREVIEW_TTL_MS = 15 * 60 * 1000;
@@ -21,7 +24,7 @@ const dryRunPreviews = new Map();
 
 const normalize = (value) => String(value || "").trim();
 const toPositiveInt = (value) => Number.parseInt(value, 10);
-const normalizePhone = (value) => String(value || "").replace(/[^\d+]/g, "");
+const normalizePhone = (value) => normalizeWhatsAppPhone(value) || "";
 
 const createError = (message, statusCode = 400) => {
   const error = new Error(message);
@@ -336,16 +339,17 @@ const importCsv = async ({ groupId, csvText }) => {
       continue;
     }
 
-    const [lead, created] = await Lead.findOrCreate({
-      where: { phone },
-      defaults: {
+    let lead = await Lead.findOne({ where: { whatsapp_phone_normalized: phone } });
+    const created = !lead;
+    if (!lead) {
+      lead = await Lead.create({
         name: row.name,
         phone,
         email: row.email || null,
         source: "group_import",
         status: "new"
-      }
-    });
+      });
+    }
 
     if (created) {
       summary.created += 1;
@@ -446,14 +450,16 @@ const checkLeadCooldown = async ({ leadId, message, now }) => {
   return Boolean(recent);
 };
 
-const logLeadAttempt = async ({ leadId, message, status }) => {
-  return Message.create({
-    lead_id: leadId,
+const createGroupDelivery = ({ recipient, message, status = "pending", evidence = null }) =>
+  Message.create({
+    lead_id: recipient.contact_type === "lead" ? recipient.contact_id : null,
+    student_id: recipient.contact_type === "student" ? recipient.contact_id : null,
     message,
-    type: "followup",
-    status
+    type: "group",
+    status,
+    source: "group",
+    delivery_evidence: evidence
   });
-};
 
 const logStudentAttempt = async ({ student, message, status, detail = "" }) => {
   const now = new Date();
@@ -514,9 +520,23 @@ const sendMessage = async ({
     throw createError("dry_run is required before sending this group message", 409);
   }
 
+  if (!isWhatsAppSendingEnabled()) {
+    dryRunPreviews.delete(token);
+    return {
+      disabled: true,
+      total_targets: rendered.length,
+      accepted: 0,
+      skipped_opt_out: 0,
+      skipped_cooldown: 0,
+      errors: 0,
+      results: []
+    };
+  }
+
   const summary = {
     total_targets: rendered.length,
-    sent: 0,
+    accepted: 0,
+    skipped_opt_out: 0,
     skipped_cooldown: 0,
     errors: 0,
     results: []
@@ -525,6 +545,26 @@ const sendMessage = async ({
 
   for (const item of rendered) {
     const recipient = recipients.find((row) => row.member_id === item.member_id);
+    const policy = canSendWhatsApp(recipient.raw, "marketing");
+    if (!policy.allowed) {
+      summary.skipped_opt_out += 1;
+      summary.results.push({ ...item, status: "skipped_opt_out" });
+      await createGroupDelivery({
+        recipient,
+        message: item.message,
+        status: "skipped_opt_out",
+        evidence: "no_meta_request"
+      });
+      if (item.contact_type === "student") {
+        await logStudentAttempt({
+          student: recipient.raw,
+          message: item.message,
+          status: "skipped_opt_out",
+          detail: policy.reason
+        });
+      }
+      continue;
+    }
     const isCooldown =
       item.contact_type === "student"
         ? await checkStudentCooldown({ studentId: item.contact_id, message: item.message, now })
@@ -536,40 +576,80 @@ const sendMessage = async ({
       continue;
     }
 
+    const delivery = await createGroupDelivery({
+      recipient,
+      message: item.message,
+      evidence: "no_meta_request"
+    });
     try {
+      await delivery.update({ delivery_evidence: "meta_request_started" });
       const sendResult =
-        process.env.NODE_ENV === "test"
-          ? { success: true, statusCode: 200, mock: true }
-          : item.contact_type === "student"
-            ? await studentWhatsappService.sendMessage(item.phone, item.message)
-            : await leadWhatsappService.sendWhatsAppMessage(item.phone, item.name, item.message);
-      const success =
+        item.contact_type === "student"
+          ? await studentWhatsappService.sendMessage(recipient.raw, item.message, "marketing")
+          : await leadWhatsappService.sendWhatsAppMessage(
+              recipient.raw,
+              item.name,
+              item.message,
+              "marketing"
+            );
+      const accepted =
         item.contact_type === "lead" ? Boolean(sendResult) : Boolean(sendResult?.success);
+      const providerMessageId =
+        item.contact_type === "lead"
+          ? sendResult?.messages?.[0]?.id
+          : sendResult?.data?.messages?.[0]?.id;
+      if (!accepted) {
+        const error = new Error(sendResult?.error || "WhatsApp API rejected the group message");
+        error.deliveryAmbiguous = Boolean(sendResult?.deliveryAmbiguous);
+        error.noNetworkAttempt = Boolean(sendResult?.noNetworkAttempt);
+        throw error;
+      }
+      if (!providerMessageId) {
+        const error = new Error(
+          "Meta accepted the group message without returning a WhatsApp message id"
+        );
+        error.deliveryAmbiguous = true;
+        throw error;
+      }
+      await delivery.update({
+        status: "accepted",
+        meta_status: "accepted",
+        meta_message_id: providerMessageId,
+        accepted_at: new Date(),
+        delivery_evidence: "meta_accepted"
+      });
 
       if (item.contact_type === "student") {
         await logStudentAttempt({
           student: recipient.raw,
           message: item.message,
-          status: success ? "sent" : "failed",
+          status: "accepted",
           detail: `status=${sendResult?.statusCode || "n/a"}`
-        });
-      } else {
-        await logLeadAttempt({
-          leadId: item.contact_id,
-          message: item.message,
-          status: success ? "sent" : "failed"
         });
       }
 
-      if (success) {
-        summary.sent += 1;
-      } else {
-        summary.errors += 1;
-      }
-      summary.results.push({ ...item, status: success ? "sent" : "failed" });
+      summary.accepted += 1;
+      summary.results.push({ ...item, status: "accepted", wamid: providerMessageId });
     } catch (error) {
+      const ambiguous = Boolean(error.deliveryAmbiguous);
+      const noNetworkAttempt = Boolean(error.noNetworkAttempt);
+      await delivery.update({
+        status: ambiguous ? "pending" : "failed",
+        meta_status: ambiguous ? null : "failed",
+        failed_at: ambiguous ? null : new Date(),
+        delivery_evidence: ambiguous
+          ? "ambiguous"
+          : noNetworkAttempt
+            ? "no_meta_request"
+            : "meta_request_started",
+        meta_error_message: String(error.message || "WhatsApp delivery failed").slice(0, 2000)
+      });
       summary.errors += 1;
-      summary.results.push({ ...item, status: "error", error: error.message });
+      summary.results.push({
+        ...item,
+        status: ambiguous ? "ambiguous" : "failed",
+        error: error.message
+      });
       if (item.contact_type === "student") {
         await logStudentAttempt({
           student: recipient.raw,
@@ -577,8 +657,6 @@ const sendMessage = async ({
           status: "failed",
           detail: error.message
         });
-      } else {
-        await logLeadAttempt({ leadId: item.contact_id, message: item.message, status: "failed" });
       }
     }
   }
@@ -592,8 +670,9 @@ const sendMessage = async ({
     ip: req?.ip || null,
     meta_json: JSON.stringify({
       total_targets: summary.total_targets,
-      sent: summary.sent,
+      accepted: summary.accepted,
       skipped_cooldown: summary.skipped_cooldown,
+      skipped_opt_out: summary.skipped_opt_out,
       errors: summary.errors
     })
   });

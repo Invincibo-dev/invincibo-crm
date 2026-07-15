@@ -18,7 +18,8 @@ const {
   StudentAction,
   TrackingEvent,
   Task,
-  ContactGroupMember
+  ContactGroupMember,
+  WhatsAppConsentEvent
 } = require("../models");
 const trackingService = require("../services/activation/trackingService");
 const { processPendingFollowups } = require("../services/whatsappService");
@@ -485,9 +486,134 @@ describe("Root CRM backend integration", () => {
     });
   });
 
+  describe("WHATSAPP OUTBOUND HISTORY", () => {
+    beforeEach(() => {
+      process.env.WHATSAPP_SEND_ENABLED = "true";
+    });
+
+    afterEach(() => {
+      delete process.env.WHATSAPP_SEND_ENABLED;
+    });
+
+    test("records explicit Lead consent and Meta acceptance for the initial message", async () => {
+      const token = await loginAsAdmin();
+      const response = await request(app).post("/api/leads").set(auth(token)).send({
+        name: "Initial History",
+        phone: "+509 37 00 02 01",
+        whatsapp_opt_in: true,
+        whatsapp_opt_in_source: "authenticated_crm_form"
+      });
+
+      expect(response.status).toBe(201);
+      const delivery = await Message.findOne({
+        where: { lead_id: response.body.id, type: "initial" }
+      });
+      expect(delivery).toMatchObject({
+        status: "accepted",
+        meta_status: "accepted",
+        delivery_evidence: "meta_accepted"
+      });
+      expect(delivery.meta_message_id).toMatch(/^wamid\.test\./);
+      expect(
+        await WhatsAppConsentEvent.count({
+          where: { contact_type: "lead", contact_id: response.body.id, action: "opt_in" }
+        })
+      ).toBe(1);
+    });
+
+    test("records explicit Student consent and Meta acceptance for recovery", async () => {
+      const token = await loginAsAdmin();
+      const created = await request(app).post("/api/activation/students").set(auth(token)).send({
+        name: "Recovery History",
+        phone: "+509 37 00 02 02",
+        status: "at_risk",
+        whatsapp_opt_in: true,
+        whatsapp_opt_in_source: "authenticated_crm_form"
+      });
+      expect(created.status).toBe(201);
+
+      const recovery = await request(app)
+        .post(`/api/activation/students/${created.body.id}/recovery`)
+        .set(auth(token))
+        .send();
+      expect(recovery.status).toBe(200);
+      expect(recovery.body.status).toBe("accepted");
+
+      const delivery = await Message.findOne({
+        where: { student_id: created.body.id, type: "recovery" }
+      });
+      expect(delivery).toMatchObject({
+        status: "accepted",
+        meta_status: "accepted",
+        delivery_evidence: "meta_accepted"
+      });
+      expect(delivery.meta_message_id).toMatch(/^wamid\.test\./);
+      expect(
+        await WhatsAppConsentEvent.count({
+          where: { contact_type: "student", contact_id: created.body.id, action: "opt_in" }
+        })
+      ).toBe(1);
+    });
+
+    test("rejects an opt-in without a consent source", async () => {
+      const token = await loginAsAdmin();
+      const [lead, student] = await Promise.all([
+        request(app).post("/api/leads").set(auth(token)).send({
+          name: "Missing Lead Evidence",
+          phone: "+509 37 00 02 03",
+          whatsapp_opt_in: true
+        }),
+        request(app).post("/api/activation/students").set(auth(token)).send({
+          name: "Missing Student Evidence",
+          phone: "+509 37 00 02 04",
+          whatsapp_opt_in: true
+        })
+      ]);
+
+      expect(lead.status).toBe(400);
+      expect(student.status).toBe(400);
+    });
+  });
+
   describe("FOLLOW-UP DELIVERY", () => {
-    test("concurrent processors claim and deliver a follow-up only once", async () => {
-      const lead = await Lead.create({ name: "One Delivery", phone: "+50934000123" });
+    beforeEach(() => {
+      process.env.WHATSAPP_SEND_ENABLED = "true";
+    });
+
+    afterEach(() => {
+      delete process.env.WHATSAPP_SEND_ENABLED;
+    });
+
+    test("leaves pending follow-ups untouched while the master switch is disabled", async () => {
+      delete process.env.WHATSAPP_SEND_ENABLED;
+      const lead = await Lead.create({
+        name: "Switch Disabled",
+        phone: "+50934000001",
+        whatsapp_opt_in: true,
+        whatsapp_opt_in_at: new Date()
+      });
+      const followUp = await FollowUp.create({
+        lead_id: lead.id,
+        scheduled_date: new Date(Date.now() - 1000),
+        message: "Wait for activation",
+        status: "pending"
+      });
+
+      const result = await processPendingFollowups();
+
+      await followUp.reload();
+      expect(result.disabled).toBe(true);
+      expect(followUp.status).toBe("pending");
+      expect(followUp.attempt_count).toBe(0);
+    });
+
+    test("concurrent processors claim and submit a follow-up to Meta only once", async () => {
+      const lead = await Lead.create({
+        name: "One Delivery",
+        phone: "+50934000123",
+        whatsapp_opt_in: true,
+        whatsapp_opt_in_at: new Date()
+      });
       const followUp = await FollowUp.create({
         lead_id: lead.id,
         scheduled_date: new Date(Date.now() - 1000),
@@ -498,14 +624,25 @@ describe("Root CRM backend integration", () => {
       await Promise.all([processPendingFollowups(), processPendingFollowups()]);
 
       await followUp.reload();
-      expect(followUp.status).toBe("completed");
+      expect(followUp.status).toBe("processing");
       expect(followUp.attempt_count).toBe(1);
-      expect(followUp.sent_at).toBeTruthy();
+      expect(followUp.meta_status).toBe("accepted");
+      expect(followUp.accepted_at).toBeTruthy();
+      expect(followUp.sent_at).toBeNull();
+      expect(followUp.provider_message_id).toMatch(/^wamid\.test\./);
       expect(await Message.count({ where: { followup_id: followUp.id } })).toBe(1);
+      const message = await Message.findOne({ where: { followup_id: followUp.id } });
+      expect(message.status).toBe("accepted");
+      expect(message.meta_message_id).toBe(followUp.provider_message_id);
     });
 
-    test("keeps a provider-accepted delivery in processing when local finalization fails", async () => {
-      const lead = await Lead.create({ name: "Reconcile Me", phone: "+50934000456" });
+    test("sends a provider-accepted delivery to review when local finalization fails", async () => {
+      const lead = await Lead.create({
+        name: "Reconcile Me",
+        phone: "+50934000456",
+        whatsapp_opt_in: true,
+        whatsapp_opt_in_at: new Date()
+      });
       const followUp = await FollowUp.create({
         lead_id: lead.id,
         scheduled_date: new Date(Date.now() - 1000),
@@ -522,12 +659,68 @@ describe("Root CRM backend integration", () => {
 
       finalizeSpy.mockRestore();
       await followUp.reload();
-      expect(followUp.status).toBe("processing");
+      expect(followUp.status).toBe("needs_review");
+      expect(followUp.provider_message_id).toMatch(/^wamid\.test\./);
+      expect(followUp.review_reason).toContain("local finalization failed");
       expect(followUp.last_error).toContain("local database finalization failed");
+    });
+
+    test("cancels a due follow-up when the lead has no WhatsApp opt-in", async () => {
+      const lead = await Lead.create({ name: "No Consent", phone: "+50934000789" });
+      const followUp = await FollowUp.create({
+        lead_id: lead.id,
+        scheduled_date: new Date(Date.now() - 1000),
+        message: "Must not be sent",
+        status: "pending"
+      });
+
+      const result = await processPendingFollowups();
+
+      await followUp.reload();
+      expect(result.accepted).toBe(0);
+      expect(result.skipped).toBe(1);
+      expect(followUp.status).toBe("needs_review");
+      expect(followUp.cancelled).toBe(true);
+      expect(followUp.review_reason).toBe("skipped_opt_out");
+      expect(followUp.last_error).toContain("Explicit WhatsApp opt-in");
+      expect(await Message.count({ where: { followup_id: followUp.id } })).toBe(0);
+    });
+
+    test("never marks a client follow-up completed without delivery proof", async () => {
+      const lead = await Lead.create({
+        name: "Already Client",
+        phone: "+50937000205",
+        status: "client",
+        whatsapp_opt_in: true,
+        whatsapp_opt_in_at: new Date()
+      });
+      const followUp = await FollowUp.create({
+        lead_id: lead.id,
+        scheduled_date: new Date(Date.now() - 1000),
+        message: "No premature completion",
+        status: "pending"
+      });
+
+      await processPendingFollowups();
+
+      await followUp.reload();
+      expect(followUp.status).toBe("pending");
+      expect(followUp.cancelled).toBe(true);
+      expect(followUp.review_reason).toBe("lead_is_client");
+      expect(followUp.delivered_at).toBeNull();
+      expect(await Message.count({ where: { followup_id: followUp.id } })).toBe(0);
     });
   });
 
   describe("CONTACT GROUPS", () => {
+    beforeEach(() => {
+      process.env.WHATSAPP_SEND_ENABLED = "true";
+    });
+
+    afterEach(() => {
+      delete process.env.WHATSAPP_SEND_ENABLED;
+    });
+
     test("POST /api/groups creates a group", async () => {
       const token = await loginAsAdmin();
 
@@ -707,11 +900,20 @@ describe("Root CRM backend integration", () => {
         .post("/api/groups")
         .set(auth(token))
         .send({ name: "Send Group" });
-      const lead = await Lead.create({ name: "Send Lead", phone: "+50955000005", status: "new" });
+      const consentAt = new Date();
+      const lead = await Lead.create({
+        name: "Send Lead",
+        phone: "+50955000005",
+        status: "new",
+        whatsapp_opt_in: true,
+        whatsapp_opt_in_at: consentAt
+      });
       const student = await Student.create({
         name: "Send Student",
         phone: "+50955000006",
-        status: "at_risk"
+        status: "at_risk",
+        whatsapp_opt_in: true,
+        whatsapp_opt_in_at: consentAt
       });
       await request(app)
         .post(`/api/groups/${group.body.id}/members`)
@@ -736,8 +938,9 @@ describe("Root CRM backend integration", () => {
         });
 
       expect(response.status).toBe(200);
-      expect(response.body.sent).toBe(2);
+      expect(response.body.accepted).toBe(2);
       expect(await Message.count({ where: { lead_id: lead.id } })).toBe(1);
+      expect(await Message.count({ where: { student_id: student.id, type: "group" } })).toBe(1);
       expect(
         await StudentAction.count({ where: { student_id: student.id, type: "message" } })
       ).toBe(1);

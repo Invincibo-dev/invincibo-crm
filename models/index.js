@@ -13,6 +13,8 @@ const Task = require("./Task");
 const ContactGroup = require("./ContactGroup");
 const ContactGroupMember = require("./ContactGroupMember");
 const BootstrapLock = require("./BootstrapLock");
+const WhatsAppWebhookEvent = require("./WhatsAppWebhookEvent");
+const WhatsAppConsentEvent = require("./WhatsAppConsentEvent");
 
 Lead.hasMany(Message, {
   foreignKey: "lead_id",
@@ -23,6 +25,17 @@ Lead.hasMany(Message, {
 Message.belongsTo(Lead, {
   foreignKey: "lead_id",
   as: "lead"
+});
+
+Student.hasMany(Message, {
+  foreignKey: "student_id",
+  as: "whatsapp_messages",
+  onDelete: "CASCADE",
+  onUpdate: "CASCADE"
+});
+Message.belongsTo(Student, {
+  foreignKey: "student_id",
+  as: "student"
 });
 
 Lead.hasMany(FollowUp, {
@@ -45,6 +58,50 @@ FollowUp.hasOne(Message, {
 Message.belongsTo(FollowUp, {
   foreignKey: "followup_id",
   as: "followup"
+});
+
+WhatsAppWebhookEvent.hasMany(Message, {
+  foreignKey: "webhook_event_id",
+  as: "inbound_messages",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE"
+});
+Message.belongsTo(WhatsAppWebhookEvent, {
+  foreignKey: "webhook_event_id",
+  as: "webhook_event"
+});
+
+User.hasMany(FollowUp, {
+  foreignKey: "reviewed_by",
+  as: "reviewed_followups",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE"
+});
+FollowUp.belongsTo(User, {
+  foreignKey: "reviewed_by",
+  as: "reviewer"
+});
+
+WhatsAppWebhookEvent.hasMany(WhatsAppConsentEvent, {
+  foreignKey: "webhook_event_id",
+  as: "consent_events",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE"
+});
+WhatsAppConsentEvent.belongsTo(WhatsAppWebhookEvent, {
+  foreignKey: "webhook_event_id",
+  as: "webhook_event"
+});
+
+User.hasMany(WhatsAppConsentEvent, {
+  foreignKey: "created_by",
+  as: "whatsapp_consent_events",
+  onDelete: "SET NULL",
+  onUpdate: "CASCADE"
+});
+WhatsAppConsentEvent.belongsTo(User, {
+  foreignKey: "created_by",
+  as: "creator"
 });
 
 Lead.belongsToMany(Tag, {
@@ -163,5 +220,7 @@ module.exports = {
   Task,
   ContactGroup,
   ContactGroupMember,
-  BootstrapLock
+  BootstrapLock,
+  WhatsAppWebhookEvent,
+  WhatsAppConsentEvent
 };

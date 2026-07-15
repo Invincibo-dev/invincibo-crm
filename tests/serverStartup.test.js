@@ -11,6 +11,7 @@ const app = require("../app");
 const { sequelize } = require("../models");
 const runtimeState = require("../config/runtimeState");
 const { startServer } = require("../server");
+const { startFollowupCron } = require("../jobs/followupCron");
 
 describe("server startup readiness", () => {
   beforeEach(() => {
@@ -35,6 +36,7 @@ describe("server startup readiness", () => {
 
     expect(order).toEqual(["listen", "database"]);
     expect(runtimeState.isReady()).toBe(true);
+    expect(startFollowupCron).not.toHaveBeenCalled();
   });
 
   test("stays not-ready when database authentication fails", async () => {

@@ -103,6 +103,13 @@ TRACKING_DEST_DEFAULT=https://cv-pam.com
 
 WHATSAPP_ACCESS_TOKEN=
 WHATSAPP_PHONE_NUMBER_ID=
+WHATSAPP_APP_SECRET=
+WHATSAPP_WEBHOOK_VERIFY_TOKEN=
+WHATSAPP_GRAPH_API_VERSION=v23.0
+WHATSAPP_SEND_ENABLED=false
+WHATSAPP_TEMPLATE_NAME=crm_followup_reminder
+WHATSAPP_TEMPLATE_LANGUAGE=fr
+WHATSAPP_ALLOW_FREEFORM_MESSAGES=false
 WHATSAPP_COOLDOWN_HOURS=6
 FOLLOWUP_CRON_ENABLED=false
 WHATSAPP_FOLLOWUP_MAX_ATTEMPTS=3
@@ -118,6 +125,71 @@ Optional variables are documented in `.env.example`.
 Use `WHATSAPP_ACCESS_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` for production WhatsApp sending. They can stay empty for the first backend launch if `FOLLOWUP_CRON_ENABLED=false`, but lead creation or group messaging that attempts to send WhatsApp messages will fail until valid values are configured. The backend still accepts the older local aliases `WHATSAPP_TOKEN` and `PHONE_NUMBER_ID` as fallbacks, but they should not be used for the Hostinger environment.
 
 Set `FOLLOWUP_CRON_ENABLED=true` only after the follow-up automation has been validated in production. When enabled, the backend will run the scheduled follow-up processor from the Node.js process.
+
+Configure Meta's WhatsApp callback URL as
+`https://api.cv-pam.com/api/webhooks/whatsapp`. The GET challenge uses
+`WHATSAPP_WEBHOOK_VERIFY_TOKEN`; signed POST notifications use the Meta
+application secret in `WHATSAPP_APP_SECRET`. If the App Secret is absent, POST
+processing returns `503` and no webhook receipt is stored. Valid events are
+persisted idempotently. Signed `sent`, `delivered`, `read`, and `failed` statuses
+are then applied without regression; a follow-up becomes completed only at
+`delivered`. Signed inbound text is stored idempotently. Explicit STOP/ARRÊT,
+PA STOP, SISPANN, and UNSUBSCRIBE requests disable consent and block every
+current outbound category before the Meta request.
+
+Migration `20260714_005_whatsapp_inbound_consent.js` adds normalized phone
+indexes, inbound Message metadata, consent evidence fields, and webhook message
+counters. It is covered by SQLite tests, but must be applied first to a backed-up
+MySQL staging copy and checked for legacy phone duplicates/schema drift before
+production. Do not enable outbound or cron switches during this validation.
+
+Migration `20260715_006_followup_recovery.js` adds manual review notes, recovery
+source, durable delivery evidence, `updated_at`, and the stuck-processing index.
+Configure recovery conservatively while both send switches remain false:
+
+```env
+FOLLOWUP_PROCESSING_TIMEOUT_MINUTES=15
+FOLLOWUP_RECOVERY_BATCH_SIZE=50
+FOLLOWUP_MAX_ATTEMPTS=3
+```
+
+### Mandatory MySQL staging validation
+
+Never point these commands at production. Use a new empty staging database or
+an anonymized restored copy whose name explicitly contains `staging`, `stage`,
+or `test`. Put credentials in the staging host environment rather than source
+control:
+
+```bash
+export NODE_ENV=staging
+export DB_DIALECT=mysql
+export DB_HOST=staging-mysql-host
+export DB_PORT=3306
+export DB_NAME=invincibo_crm_staging
+export DB_USER=staging_user
+export DB_PASSWORD='staging-secret-from-secure-store'
+export MYSQL_STAGING_CONFIRM=STAGING_ONLY
+export WHATSAPP_SEND_ENABLED=false
+export FOLLOWUP_CRON_ENABLED=false
+
+npm ci
+npm run db:migrate
+npm run db:migrate
+npm run db:migrate:status
+npm run db:staging:report > mysql-staging-report.json
+```
+
+The second migration run must output `[]`. The status command must report every
+migration through `20260715_006_followup_recovery.js` as applied. The staging
+report is read-only and records exact ENUM definitions, defaults, indexes,
+foreign keys, and migration rows. It refuses non-MySQL targets, non-staging
+runtime, missing explicit confirmation, and database names without a staging or
+test marker.
+
+The current Jest command forces SQLite, so it is not a MySQL integration suite.
+Do not report MySQL concurrency as validated until a compatible suite or
+controlled staging scenarios have exercised two recovery runs and a delivered
+webhook against the same FollowUp.
 
 On startup with `NODE_ENV=production`, the backend validates required production settings before connecting to MySQL. It exits if required values are missing, still set to placeholders, if `DB_AUTO_SYNC=true`, if `DB_DIALECT` is not `mysql`, or if `CORS_ORIGIN=*`. WhatsApp credentials are required at startup only when `FOLLOWUP_CRON_ENABLED=true`.
 

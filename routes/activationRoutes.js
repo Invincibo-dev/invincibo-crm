@@ -46,7 +46,10 @@ router.post("/students", authorizeRoles("admin", "agent"), async (req, res, next
     const student = await activationService.createStudent({
       name: req.body?.name,
       phone: req.body?.phone,
-      status: req.body?.status
+      status: req.body?.status,
+      whatsappOptIn: req.body?.whatsapp_opt_in === true,
+      whatsappOptInSource: req.body?.whatsapp_opt_in_source,
+      createdBy: req.user.id
     });
     return res.status(201).json(student);
   } catch (error) {

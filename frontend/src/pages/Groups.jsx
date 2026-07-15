@@ -662,8 +662,8 @@ const Groups = () => {
 
                   {sendSummary && (
                     <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-                      Total: {sendSummary.total_targets} - Envoyes: {sendSummary.sent} - Cooldown:{" "}
-                      {sendSummary.skipped_cooldown} - Erreurs: {sendSummary.errors}
+                      Total: {sendSummary.total_targets} - Acceptes par Meta: {sendSummary.accepted}{" "}
+                      - Cooldown: {sendSummary.skipped_cooldown} - Erreurs: {sendSummary.errors}
                     </div>
                   )}
                 </div>

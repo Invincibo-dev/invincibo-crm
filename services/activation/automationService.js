@@ -1,9 +1,11 @@
 const { Op } = require("sequelize");
-const { Student, StudentAction, sequelize } = require("../../models");
+const { Message, Student, StudentAction, sequelize } = require("../../models");
 const activationService = require("./activationService");
 const whatsappService = require("./whatsappService");
 const { AppError } = require("./errors");
 const taskService = require("../taskService");
+const { canSendWhatsApp } = require("../whatsappConsentService");
+const { isWhatsAppSendingEnabled } = require("../../config/whatsapp");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WHATSAPP_COOLDOWN_HOURS = Number(process.env.WHATSAPP_COOLDOWN_HOURS || 6);
@@ -129,6 +131,7 @@ const findRecentWhatsappAttempt = async ({ studentId, actionType, now }) => {
       created_at: { [Op.gte]: minDate },
       content: {
         [Op.or]: [
+          { [Op.like]: "[wa:accepted]%" },
           { [Op.like]: "[wa:sent]%" },
           { [Op.like]: "[wa:failed]%" },
           { [Op.like]: "[wa:skipped]%" }
@@ -149,11 +152,7 @@ const logRecoveryAction = async ({
 }) => {
   const preferredType = detectActionTypeForSituation(situation);
   const type = getRequiredActionType(preferredType);
-  const prefix = sendResult?.success
-    ? "[wa:sent]"
-    : reason === "cooldown_or_duplicate"
-      ? "[wa:skipped]"
-      : "[wa:failed]";
+  const prefix = sendResult?.success ? "[wa:accepted]" : reason ? "[wa:skipped]" : "[wa:failed]";
   const transportStatus = sendResult
     ? ` status=${sendResult.statusCode || "n/a"} success=${Boolean(sendResult.success)}`
     : " status=n/a success=false";
@@ -211,30 +210,103 @@ const triggerStudentRecovery = async (student) => {
   });
 
   const actionType = getRequiredActionType(detectActionTypeForSituation(situation));
+  const policy = canSendWhatsApp(persistedStudent, "utility");
+  const skipSend = await shouldSkipBySafety({
+    studentId: persistedStudent.id,
+    actionType,
+    message,
+    now
+  });
+
+  let sendResult;
+  let reason = null;
+  let delivery = null;
+
+  if (!policy.allowed) {
+    sendResult = {
+      success: false,
+      skipped: true,
+      status: "skipped_opt_out",
+      statusCode: 0,
+      error: policy.reason
+    };
+    reason = "skipped_opt_out";
+    delivery = await Message.create({
+      student_id: persistedStudent.id,
+      message,
+      type: "recovery",
+      status: "skipped_opt_out",
+      source: "activation",
+      delivery_evidence: "no_meta_request"
+    });
+  } else if (skipSend) {
+    sendResult = {
+      success: false,
+      statusCode: 429,
+      error: "Message skipped by cooldown/idempotency"
+    };
+    reason = "cooldown_or_duplicate";
+  } else if (!isWhatsAppSendingEnabled()) {
+    sendResult = {
+      success: false,
+      statusCode: 0,
+      error: "WhatsApp sending is disabled by WHATSAPP_SEND_ENABLED"
+    };
+    reason = "sending_disabled";
+  } else if (process.env.NODE_ENV !== "test" && !whatsappService.hasConfig()) {
+    sendResult = {
+      success: false,
+      statusCode: 0,
+      error: "WhatsApp configuration is unavailable"
+    };
+    reason = "configuration_unavailable";
+  } else {
+    delivery = await Message.create({
+      student_id: persistedStudent.id,
+      message,
+      type: "recovery",
+      status: "pending",
+      source: "activation",
+      delivery_evidence: "no_meta_request"
+    });
+    await delivery.update({ delivery_evidence: "meta_request_started" });
+    sendResult = await whatsappService.sendMessage(persistedStudent, message, "utility");
+    const providerMessageId = sendResult?.data?.messages?.[0]?.id;
+    if (sendResult.success && providerMessageId) {
+      await delivery.update({
+        status: "accepted",
+        meta_status: "accepted",
+        meta_message_id: providerMessageId,
+        accepted_at: new Date(),
+        delivery_evidence: "meta_accepted"
+      });
+    } else {
+      const ambiguous = Boolean(
+        sendResult.deliveryAmbiguous || (sendResult.success && !providerMessageId)
+      );
+      if (sendResult.success && !providerMessageId) {
+        sendResult = {
+          ...sendResult,
+          success: false,
+          deliveryAmbiguous: true,
+          error: "Meta accepted the request without returning a WhatsApp message id"
+        };
+      }
+      await delivery.update({
+        status: ambiguous ? "pending" : "failed",
+        meta_status: ambiguous ? null : "failed",
+        failed_at: ambiguous ? null : new Date(),
+        delivery_evidence: ambiguous ? "ambiguous" : "meta_request_started",
+        meta_error_message: String(
+          sendResult.error || "Meta accepted the request without returning a WhatsApp message id"
+        ).slice(0, 2000)
+      });
+    }
+  }
+
   const transaction = await sequelize.transaction();
 
   try {
-    const skipSend = await shouldSkipBySafety({
-      studentId: persistedStudent.id,
-      actionType,
-      message,
-      now
-    });
-
-    let sendResult;
-    let reason = null;
-
-    if (skipSend) {
-      sendResult = {
-        success: false,
-        statusCode: 429,
-        error: "Message skipped by cooldown/idempotency"
-      };
-      reason = "cooldown_or_duplicate";
-    } else {
-      sendResult = await whatsappService.sendMessage(persistedStudent.phone, message);
-    }
-
     await logRecoveryAction({
       studentId: persistedStudent.id,
       situation,
@@ -252,9 +324,11 @@ const triggerStudentRecovery = async (student) => {
     return {
       student_id: persistedStudent.id,
       situation,
-      skipped: skipSend,
+      skipped: skipSend || !policy.allowed,
+      status: reason || (sendResult.success ? "accepted" : "failed"),
       message,
-      send_result: sendResult
+      send_result: sendResult,
+      message_id: delivery?.id || null
     };
   } catch (error) {
     await transaction.rollback();

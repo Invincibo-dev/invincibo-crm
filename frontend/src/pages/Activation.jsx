@@ -19,7 +19,13 @@ const actionOptions = [
   { value: "server_activated", label: "Serveur active" }
 ];
 
-const emptyStudent = { name: "", phone: "", status: "paid_training" };
+const emptyStudent = {
+  name: "",
+  phone: "",
+  status: "paid_training",
+  whatsapp_opt_in: false,
+  whatsapp_opt_in_source: ""
+};
 
 const Activation = () => {
   const navigate = useNavigate();
@@ -265,6 +271,28 @@ const Activation = () => {
                 </option>
               ))}
             </select>
+            <label className="mt-3 flex items-start gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700">
+              <input
+                className="mt-1"
+                type="checkbox"
+                checked={form.whatsapp_opt_in}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, whatsapp_opt_in: event.target.checked }))
+                }
+              />
+              <span>L'eleve a explicitement accepte les messages WhatsApp.</span>
+            </label>
+            {form.whatsapp_opt_in && (
+              <input
+                className="mt-3 w-full rounded-xl border border-slate-300 px-3 py-2"
+                placeholder="Source du consentement"
+                value={form.whatsapp_opt_in_source}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, whatsapp_opt_in_source: event.target.value }))
+                }
+                required
+              />
+            )}
             <button
               className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
               disabled={submitting}

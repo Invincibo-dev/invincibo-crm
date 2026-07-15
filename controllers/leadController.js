@@ -1,6 +1,10 @@
 const { Lead, Message, FollowUp, sequelize } = require("../models");
 const { addContactToGoogle } = require("../services/googleService");
-const { sendWhatsAppMessage } = require("../services/whatsappService");
+const { sendWhatsAppTemplate } = require("../services/whatsappService");
+const { isWhatsAppSendingEnabled } = require("../config/whatsapp");
+const { getWhatsAppConfig } = require("../config/whatsapp");
+const { canSendWhatsApp } = require("../services/whatsappConsentService");
+const { recordExplicitOptIn } = require("../services/whatsappConsentService");
 const { generateFollowupSequence } = require("../services/sequenceService");
 const { buildMessage } = require("../services/messageBuilder");
 const { updateLeadScore } = require("../services/scoreService");
@@ -13,7 +17,18 @@ const createLead = async (req, res, next) => {
   let transactionCommitted = false;
 
   try {
-    const { name, first_name, last_name, gender, phone, email, source, status } = req.body;
+    const {
+      name,
+      first_name,
+      last_name,
+      gender,
+      phone,
+      email,
+      source,
+      status,
+      whatsapp_opt_in,
+      whatsapp_opt_in_source
+    } = req.body;
     const firstName = normalizeText(first_name);
     const lastName = normalizeText(last_name);
     const fallbackName = normalizeText(name);
@@ -36,10 +51,24 @@ const createLead = async (req, res, next) => {
         phone,
         email,
         source,
-        status: status || "new"
+        status: status || "new",
+        whatsapp_opt_in: false,
+        whatsapp_opt_in_at: null,
+        whatsapp_opt_in_source: null
       },
       { transaction }
     );
+
+    if (whatsapp_opt_in === true) {
+      await recordExplicitOptIn({
+        contact: lead,
+        contactType: "lead",
+        source: whatsapp_opt_in_source,
+        eventAt: new Date(),
+        createdBy: req.user.id,
+        transaction
+      });
+    }
 
     // Marketing sequence:
     // J+1, J+3, J+7 follow-ups are generated immediately after lead creation.
@@ -54,28 +83,62 @@ const createLead = async (req, res, next) => {
     // const { buildMessage } = require("../services/messageBuilder");
     // const message = buildMessage(lead, "initial");
     const initialMessageText = buildMessage(lead, "initial");
-    try {
-      await sendWhatsAppMessage(phone, displayName, initialMessageText);
-      await Message.create({
+    if (canSendWhatsApp(lead, "marketing").allowed && isWhatsAppSendingEnabled()) {
+      const templateParameter = firstName || displayName.split(/\s+/)[0];
+      const { templateName, templateLanguage } = getWhatsAppConfig();
+      const delivery = await Message.create({
         lead_id: lead.id,
         message: initialMessageText,
         type: "initial",
-        status: "sent"
+        status: "pending",
+        template_name: templateName,
+        template_language: templateLanguage,
+        template_parameters_json: JSON.stringify([templateParameter]),
+        delivery_evidence: "no_meta_request"
       });
-    } catch (whatsAppError) {
-      await Message.create({
-        lead_id: lead.id,
-        message: initialMessageText,
-        type: "initial",
-        status: "failed"
-      });
+      try {
+        await delivery.update({ delivery_evidence: "meta_request_started" });
+        const providerResponse = await sendWhatsAppTemplate(lead, templateParameter);
+        const providerMessageId = providerResponse?.messages?.[0]?.id;
+        if (!providerMessageId) {
+          const error = new Error(
+            "Meta accepted the request without returning a WhatsApp message id"
+          );
+          error.deliveryAmbiguous = true;
+          throw error;
+        }
+        await delivery.update({
+          status: "accepted",
+          meta_status: "accepted",
+          meta_message_id: providerMessageId,
+          accepted_at: new Date(),
+          delivery_evidence: "meta_accepted"
+        });
+      } catch (whatsAppError) {
+        const ambiguous = Boolean(whatsAppError.deliveryAmbiguous);
+        const noNetworkAttempt = Boolean(whatsAppError.noNetworkAttempt);
+        await delivery.update({
+          status: ambiguous ? "pending" : "failed",
+          meta_status: ambiguous ? null : "failed",
+          failed_at: ambiguous ? null : new Date(),
+          delivery_evidence: ambiguous
+            ? "ambiguous"
+            : noNetworkAttempt
+              ? "no_meta_request"
+              : "meta_request_started",
+          meta_error_message: String(whatsAppError.message || "WhatsApp delivery failed").slice(
+            0,
+            2000
+          )
+        });
 
-      if (process.env.NODE_ENV !== "test") {
-        console.error(
-          "[WhatsApp Cloud API] Failed to send initial message for lead",
-          lead.id,
-          whatsAppError.message
-        );
+        if (process.env.NODE_ENV !== "test") {
+          console.error(
+            "[WhatsApp Cloud API] Failed to send initial message for lead",
+            lead.id,
+            whatsAppError.message
+          );
+        }
       }
     }
 

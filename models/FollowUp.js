@@ -1,5 +1,6 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
+const { FOLLOWUP_STATUSES, META_MESSAGE_STATUSES } = require("../config/whatsappStates");
 
 const FollowUp = sequelize.define(
   "FollowUp",
@@ -32,7 +33,7 @@ const FollowUp = sequelize.define(
       defaultValue: false
     },
     status: {
-      type: DataTypes.ENUM("pending", "processing", "completed", "failed"),
+      type: DataTypes.ENUM(...FOLLOWUP_STATUSES),
       allowNull: false,
       defaultValue: "pending"
     },
@@ -53,14 +54,82 @@ const FollowUp = sequelize.define(
       type: DataTypes.STRING(255),
       allowNull: true
     },
+    meta_status: {
+      type: DataTypes.ENUM(...META_MESSAGE_STATUSES),
+      allowNull: true
+    },
+    meta_error_code: {
+      type: DataTypes.STRING(80),
+      allowNull: true
+    },
+    meta_error_message: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    accepted_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    delivered_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    read_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    failed_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    review_reason: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    reviewed_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    reviewed_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    review_note: {
+      type: DataTypes.TEXT,
+      allowNull: true
+    },
+    recovery_source: {
+      type: DataTypes.STRING(40),
+      allowNull: true
+    },
+    delivery_evidence: {
+      type: DataTypes.STRING(40),
+      allowNull: true
+    },
     last_error: {
       type: DataTypes.TEXT,
       allowNull: true
+    },
+    updated_at: {
+      type: DataTypes.DATE,
+      allowNull: false,
+      defaultValue: DataTypes.NOW
     }
   },
   {
     tableName: "followups",
-    timestamps: false
+    timestamps: false,
+    indexes: [
+      {
+        name: "idx_followups_processing_review",
+        fields: ["status", "processing_started_at"]
+      }
+    ],
+    hooks: {
+      beforeSave(followUp) {
+        followUp.updated_at = new Date();
+      }
+    }
   }
 );
 

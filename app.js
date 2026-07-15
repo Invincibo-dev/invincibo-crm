@@ -8,6 +8,7 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 const activationRoutes = require("./routes/activationRoutes");
 const groupRoutes = require("./routes/groupRoutes");
 const trackingRoutes = require("./routes/trackingRoutes");
+const webhookRoutes = require("./routes/webhookRoutes");
 const { authenticateToken } = require("./middleware/authMiddleware");
 const { apiLimiter } = require("./middleware/rateLimiters");
 const errorHandler = require("./middleware/errorHandler");
@@ -38,7 +39,14 @@ app.use(
   })
 );
 
-app.use(express.json());
+const captureWebhookRawBody = (req, _res, buffer) => {
+  const requestPath = String(req.originalUrl || "").split("?", 1)[0];
+  if (requestPath === "/api/webhooks/whatsapp") {
+    req.rawBody = Buffer.from(buffer);
+  }
+};
+
+app.use(express.json({ limit: "100kb", verify: captureWebhookRawBody }));
 app.use("/api", apiLimiter);
 
 app.get("/health", (_req, res) => {
@@ -63,6 +71,7 @@ app.use((req, res, next) => {
 });
 
 app.use(trackingRoutes);
+app.use("/api/webhooks/whatsapp", webhookRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/leads", authenticateToken, leadRoutes);
 app.use("/api/followups", authenticateToken, followupRoutes);

@@ -8,7 +8,9 @@ const emptyForm = {
   phone: "",
   email: "",
   source: "local",
-  gender: "unknown"
+  gender: "unknown",
+  whatsapp_opt_in: false,
+  whatsapp_opt_in_source: ""
 };
 
 const statusLabels = {
@@ -522,6 +524,29 @@ const Contacts = () => {
                 <option value="female">Femme</option>
                 <option value="male">Homme</option>
               </select>
+              <label className="flex items-start gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm text-slate-700 sm:col-span-2">
+                <input
+                  className="mt-1"
+                  type="checkbox"
+                  checked={form.whatsapp_opt_in}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, whatsapp_opt_in: event.target.checked }))
+                  }
+                />
+                <span>
+                  Le contact a explicitement accepte de recevoir les messages WhatsApp marketing de
+                  CV-PAM.
+                </span>
+              </label>
+              {form.whatsapp_opt_in && (
+                <input
+                  className="rounded-xl border border-slate-300 px-3 py-2 outline-none focus:border-slate-500 sm:col-span-2"
+                  placeholder="Source du consentement (ex: formulaire signe, accord verbal documente)"
+                  value={form.whatsapp_opt_in_source}
+                  onChange={onChange("whatsapp_opt_in_source")}
+                  required
+                />
+              )}
               <button
                 className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
                 disabled={submitting}

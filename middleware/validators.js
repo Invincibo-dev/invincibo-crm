@@ -41,7 +41,17 @@ const validateLoginBody = validate((req) => {
 });
 
 const validateCreateLeadBody = validate((req) => {
-  const { first_name, last_name, name, phone, email, status, gender } = req.body || {};
+  const {
+    first_name,
+    last_name,
+    name,
+    phone,
+    email,
+    status,
+    gender,
+    whatsapp_opt_in,
+    whatsapp_opt_in_source
+  } = req.body || {};
 
   const hasFirst = isNonEmptyString(first_name);
   const hasLast = isNonEmptyString(last_name);
@@ -57,6 +67,12 @@ const validateCreateLeadBody = validate((req) => {
   }
   if (gender && !["male", "female", "unknown"].includes(gender)) {
     return "Invalid gender value";
+  }
+  if (whatsapp_opt_in !== undefined && typeof whatsapp_opt_in !== "boolean") {
+    return "whatsapp_opt_in must be a boolean";
+  }
+  if (whatsapp_opt_in === true && !isNonEmptyString(whatsapp_opt_in_source)) {
+    return "whatsapp_opt_in_source is required when WhatsApp consent is granted";
   }
 
   return null;

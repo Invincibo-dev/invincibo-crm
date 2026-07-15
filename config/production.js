@@ -25,10 +25,20 @@ const validateProductionConfig = () => {
     requireProductionValue(name, missing)
   );
 
-  if (process.env.FOLLOWUP_CRON_ENABLED === "true") {
-    ["WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID"].forEach((name) =>
-      requireProductionValue(name, missing)
-    );
+  if (
+    process.env.FOLLOWUP_CRON_ENABLED === "true" &&
+    process.env.WHATSAPP_SEND_ENABLED !== "true"
+  ) {
+    throw new Error("FOLLOWUP_CRON_ENABLED requires WHATSAPP_SEND_ENABLED=true");
+  }
+
+  if (process.env.WHATSAPP_SEND_ENABLED === "true") {
+    [
+      "WHATSAPP_ACCESS_TOKEN",
+      "WHATSAPP_PHONE_NUMBER_ID",
+      "WHATSAPP_TEMPLATE_NAME",
+      "WHATSAPP_TEMPLATE_LANGUAGE"
+    ].forEach((name) => requireProductionValue(name, missing));
   }
 
   const dialect = process.env.DB_DIALECT || "mysql";

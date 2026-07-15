@@ -1,5 +1,6 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/db");
+const { normalizeWhatsAppPhone } = require("../services/whatsappPhoneService");
 
 const Lead = sequelize.define(
   "Lead",
@@ -31,6 +32,10 @@ const Lead = sequelize.define(
       allowNull: false,
       unique: true
     },
+    whatsapp_phone_normalized: {
+      type: DataTypes.STRING(15),
+      allowNull: true
+    },
     email: {
       type: DataTypes.STRING(255),
       allowNull: true,
@@ -60,6 +65,31 @@ const Lead = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true
     },
+    whatsapp_opt_in: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
+    whatsapp_opt_in_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    whatsapp_opt_in_source: {
+      type: DataTypes.STRING(80),
+      allowNull: true
+    },
+    whatsapp_opt_out_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
+    whatsapp_opt_out_source: {
+      type: DataTypes.STRING(80),
+      allowNull: true
+    },
+    whatsapp_service_window_expires_at: {
+      type: DataTypes.DATE,
+      allowNull: true
+    },
     created_at: {
       type: DataTypes.DATE,
       allowNull: false,
@@ -68,7 +98,13 @@ const Lead = sequelize.define(
   },
   {
     tableName: "leads",
-    timestamps: false
+    timestamps: false,
+    indexes: [{ name: "idx_leads_whatsapp_phone", fields: ["whatsapp_phone_normalized"] }],
+    hooks: {
+      beforeValidate(lead) {
+        lead.whatsapp_phone_normalized = normalizeWhatsAppPhone(lead.phone);
+      }
+    }
   }
 );
 

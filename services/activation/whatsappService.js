@@ -1,12 +1,21 @@
 const https = require("https");
+const {
+  DEFAULT_GRAPH_API_VERSION,
+  getWhatsAppConfig,
+  isWhatsAppSendingEnabled
+} = require("../../config/whatsapp");
 const trackingService = require("./trackingService");
+const { canSendWhatsApp } = require("../whatsappConsentService");
+const { normalizeWhatsAppPhone } = require("../whatsappPhoneService");
 
-const WHATSAPP_API_BASE = "https://graph.facebook.com/v18.0";
+const WHATSAPP_API_BASE = `https://graph.facebook.com/${DEFAULT_GRAPH_API_VERSION}`;
 
-const normalizePhone = (value) => String(value || "").replace(/[^\d]/g, "");
+const normalizePhone = normalizeWhatsAppPhone;
 
-const hasConfig = () =>
-  Boolean(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
+const hasConfig = () => {
+  const { token, phoneNumberId, sendEnabled, allowFreeformMessages } = getWhatsAppConfig();
+  return Boolean(token && phoneNumberId && sendEnabled && allowFreeformMessages);
+};
 
 const attachTrackingLink = ({ studentId, trackingType, message }) => {
   const bodyText = String(message || "").trim();
@@ -24,8 +33,12 @@ const attachTrackingLink = ({ studentId, trackingType, message }) => {
   return `${bodyText} ${trackingLink}`.trim();
 };
 
-const sendMessage = async (to, message) => {
-  const phone = normalizePhone(to);
+const sendMessage = async (contact, message, messageCategory = "utility") => {
+  const policy = canSendWhatsApp(contact, messageCategory);
+  if (!policy.allowed) {
+    return { success: false, skipped: true, status: "skipped_opt_out", statusCode: 0 };
+  }
+  const phone = normalizePhone(contact.phone);
   const bodyText = String(message || "").trim();
 
   if (!phone || !bodyText) {
@@ -36,14 +49,35 @@ const sendMessage = async (to, message) => {
     };
   }
 
+  if (!isWhatsAppSendingEnabled()) {
+    return {
+      success: false,
+      statusCode: 0,
+      error: "WhatsApp sending is disabled by WHATSAPP_SEND_ENABLED",
+      code: "WHATSAPP_SEND_DISABLED",
+      noNetworkAttempt: true
+    };
+  }
+
+  if (process.env.NODE_ENV === "test") {
+    return {
+      success: true,
+      statusCode: 200,
+      mock: true,
+      data: { messages: [{ id: `wamid.test.${Date.now()}.${Math.random()}` }] }
+    };
+  }
+
   if (!hasConfig()) {
     return {
       success: false,
       statusCode: 500,
-      error: "WhatsApp credentials are missing"
+      error: "WhatsApp credentials are missing",
+      noNetworkAttempt: true
     };
   }
 
+  const { token, phoneNumberId, graphApiVersion } = getWhatsAppConfig();
   const payload = JSON.stringify({
     messaging_product: "whatsapp",
     to: phone,
@@ -56,9 +90,9 @@ const sendMessage = async (to, message) => {
   const options = {
     method: "POST",
     hostname: "graph.facebook.com",
-    path: `/v18.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+    path: `/${graphApiVersion}/${phoneNumberId}/messages`,
     headers: {
-      Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       "Content-Length": Buffer.byteLength(payload)
     },
@@ -124,7 +158,8 @@ const sendMessage = async (to, message) => {
     return {
       success: false,
       statusCode: 500,
-      error: error.message
+      error: error.message,
+      deliveryAmbiguous: true
     };
   }
 };
