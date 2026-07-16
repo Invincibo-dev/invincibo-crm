@@ -15,6 +15,36 @@ const { updateLeadScore } = require("./scoreService");
 const normalizePhone = normalizeWhatsAppPhone;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const redactGraphDiagnosticText = (value, maxLength = 1000) => {
+  if (value === undefined || value === null) return null;
+  return String(value)
+    .replace(/access_token=[^&\s]+/gi, "access_token=[REDACTED]")
+    .replace(/Bearer\s+[^\s]+/gi, "Bearer [REDACTED]")
+    .replace(/\bEAA[A-Za-z0-9._-]+\b/g, "[REDACTED_TOKEN]")
+    .replace(/\b\d{7,20}\b/g, (digits) => `${digits.slice(0, 3)}******${digits.slice(-2)}`)
+    .slice(0, maxLength);
+};
+
+const extractWhatsAppGraphError = (error, sendPath = "unknown") => {
+  const metaError = error?.response?.data?.error || {};
+  const allowedPaths = new Set(["template", "freeform"]);
+  return {
+    timestamp: new Date().toISOString(),
+    send_path: allowedPaths.has(sendPath) ? sendPath : "unknown",
+    http_status: Number(error?.response?.status) || null,
+    meta_error_type: redactGraphDiagnosticText(metaError.type, 100),
+    meta_error_code:
+      metaError.code === undefined || metaError.code === null ? null : String(metaError.code),
+    meta_error_subcode:
+      metaError.error_subcode === undefined || metaError.error_subcode === null
+        ? null
+        : String(metaError.error_subcode),
+    message: redactGraphDiagnosticText(metaError.message || error?.message, 1000),
+    error_data_details: redactGraphDiagnosticText(metaError.error_data?.details, 1000),
+    fbtrace_id: redactGraphDiagnosticText(metaError.fbtrace_id, 255)
+  };
+};
+
 const assertSendingEnabled = () => {
   if (!isWhatsAppSendingEnabled()) {
     const error = new Error("WhatsApp sending is disabled by WHATSAPP_SEND_ENABLED");
@@ -50,7 +80,7 @@ const isRetryableAxiosError = (error) => {
   return Boolean(status && (status === 429 || status >= 500));
 };
 
-const sendWithRetry = async (requestConfig) => {
+const sendWithRetry = async (requestConfig, sendPath) => {
   const maxRetries = Number(process.env.WHATSAPP_MAX_RETRIES || 2);
   const backoffMs = Number(process.env.WHATSAPP_RETRY_BACKOFF_MS || 1200);
 
@@ -70,6 +100,15 @@ const sendWithRetry = async (requestConfig) => {
 
   if (lastError && !lastError.response) {
     lastError.deliveryAmbiguous = true;
+  }
+  if (lastError) {
+    lastError.whatsappDiagnostic = extractWhatsAppGraphError(lastError, sendPath);
+    if (process.env.NODE_ENV !== "test") {
+      console.error(
+        "[WhatsApp Cloud API] Graph request failed",
+        JSON.stringify(lastError.whatsappDiagnostic)
+      );
+    }
   }
   throw lastError;
 };
@@ -101,23 +140,26 @@ async function sendWhatsAppMessage(contact, name, messageText, messageCategory =
     throw error;
   }
 
-  return sendWithRetry({
-    method: "post",
-    url: endpoint,
-    data: {
-      messaging_product: "whatsapp",
-      to: sanitizedPhone,
-      type: "text",
-      text: {
-        body: messageText
-      }
+  return sendWithRetry(
+    {
+      method: "post",
+      url: endpoint,
+      data: {
+        messaging_product: "whatsapp",
+        to: sanitizedPhone,
+        type: "text",
+        text: {
+          body: messageText
+        }
+      },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      timeout: 10000
     },
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json"
-    },
-    timeout: 10000
-  });
+    "freeform"
+  );
 }
 
 async function sendWhatsAppTemplate(contact, firstName, messageCategory = "marketing") {
@@ -142,21 +184,24 @@ async function sendWhatsAppTemplate(contact, firstName, messageCategory = "marke
     requireTemplate: true
   });
 
-  return sendWithRetry({
-    method: "post",
-    url: endpoint,
-    data: buildTemplatePayload({
-      phone: sanitizedPhone,
-      firstName,
-      templateName,
-      templateLanguage
-    }),
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json"
+  return sendWithRetry(
+    {
+      method: "post",
+      url: endpoint,
+      data: buildTemplatePayload({
+        phone: sanitizedPhone,
+        firstName,
+        templateName,
+        templateLanguage
+      }),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      timeout: 10000
     },
-    timeout: 10000
-  });
+    "template"
+  );
 }
 
 async function processPendingFollowups() {
@@ -385,6 +430,7 @@ async function processPendingFollowups() {
 
 module.exports = {
   buildTemplatePayload,
+  extractWhatsAppGraphError,
   sendWhatsAppMessage,
   sendWhatsAppTemplate,
   processPendingFollowups
