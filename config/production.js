@@ -1,3 +1,5 @@
+const { validateWhatsAppMetaIdentifiers } = require("./whatsapp");
+
 const PLACEHOLDER_PATTERNS = [/^replace_/i, /^your_/i, /^<.*>$/, /change_me/i];
 
 const isBlank = (value) => !String(value || "").trim();
@@ -22,6 +24,10 @@ const validateProductionConfig = () => {
   const missing = [];
 
   ["CORS_ORIGIN", "JWT_SECRET", "TRACKING_BASE_URL", "TRACKING_SECRET"].forEach((name) =>
+    requireProductionValue(name, missing)
+  );
+
+  ["WHATSAPP_WABA_ID", "WHATSAPP_PHONE_NUMBER_ID"].forEach((name) =>
     requireProductionValue(name, missing)
   );
 
@@ -61,6 +67,8 @@ const validateProductionConfig = () => {
   if (missing.length > 0) {
     throw new Error(`Missing or placeholder production env vars: ${missing.join(", ")}`);
   }
+
+  validateWhatsAppMetaIdentifiers();
 };
 
 module.exports = {
